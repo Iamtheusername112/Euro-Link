@@ -25,6 +25,46 @@ export default function UserDashboard() {
     }
   }, [user, authLoading, router])
 
+  // Set up real-time subscription for status updates
+  useEffect(() => {
+    if (!supabase || !user || authLoading) return
+
+    const channel = supabase
+      .channel('shipment-status-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'shipments',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          // Update current order if it matches
+          setCurrentOrder(prevOrder => {
+            if (prevOrder && payload.new.id === prevOrder.id) {
+              toast.success(`Status updated: ${payload.new.status}`)
+              return payload.new
+            }
+            return prevOrder
+          })
+          
+          // If status changed and shipment is no longer active, refresh
+          if (currentOrder && payload.new.id === currentOrder.id) {
+            const activeStatuses = ['Pending', 'Paid', 'In Transit', 'On Route', 'Out for Delivery']
+            if (!activeStatuses.includes(payload.new.status)) {
+              fetchDashboardData()
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user, supabase, authLoading])
+
   const fetchDashboardData = async () => {
     if (!supabase || !user) return
 
@@ -35,15 +75,17 @@ export default function UserDashboard() {
         .from('shipments')
         .select('*')
         .eq('user_id', user.id)
-        .in('status', ['Pending', 'Paid', 'In Transit', 'On Route'])
+        .in('status', ['Pending', 'Paid', 'In Transit', 'On Route', 'Out for Delivery'])
         .order('created_at', { ascending: false })
         .limit(1)
-        .single()
+        .maybeSingle()
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching current order:', error)
       } else if (shipments) {
         setCurrentOrder(shipments)
+      } else {
+        setCurrentOrder(null)
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
@@ -119,15 +161,38 @@ export default function UserDashboard() {
               </button>
             </div>
             
-            <p className="text-gray-400 text-sm mb-4">ID - {currentOrder.tracking_number}</p>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-gray-400 text-sm">ID - {currentOrder.tracking_number}</p>
+              {/* Status Badge - Updates in real-time */}
+              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                currentOrder.status === 'Delivered' ? 'bg-green-500/20 text-green-400' :
+                currentOrder.status === 'In Transit' || currentOrder.status === 'On Route' ? 'bg-blue-500/20 text-blue-400' :
+                currentOrder.status === 'Out for Delivery' ? 'bg-purple-500/20 text-purple-400' :
+                'bg-yellow-500/20 text-yellow-400'
+              }`}>
+                {currentOrder.status}
+              </span>
+            </div>
             
-            {/* Progress Bar */}
+            {/* Progress Bar - Updates based on status */}
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                  <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                  <div className="w-3 h-3 bg-gray-600 rounded-full"></div>
+                  {(currentOrder.status === 'Pending' || currentOrder.status === 'Paid' || 
+                    currentOrder.status === 'In Transit' || currentOrder.status === 'On Route' || 
+                    currentOrder.status === 'Out for Delivery' || currentOrder.status === 'Delivered') && (
+                    <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                  )}
+                  {(currentOrder.status === 'In Transit' || currentOrder.status === 'On Route' || 
+                    currentOrder.status === 'Out for Delivery' || currentOrder.status === 'Delivered') && (
+                    <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                  )}
+                  {(currentOrder.status === 'Delivered') && (
+                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                  )}
+                  {currentOrder.status !== 'Delivered' && (
+                    <div className="w-3 h-3 bg-gray-600 rounded-full"></div>
+                  )}
                 </div>
               </div>
             </div>

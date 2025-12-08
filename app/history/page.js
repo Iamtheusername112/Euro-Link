@@ -18,12 +18,51 @@ export default function HistoryPage() {
   useEffect(() => {
     if (user && supabase) {
       fetchShipments()
+      
+      // Set up real-time subscription for status updates
+      const channel = supabase
+        .channel('user-shipments-updates')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'shipments',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            // Update the shipment in the list
+            setShipments(prevShipments => 
+              prevShipments.map(shipment => 
+                shipment.id === payload.new.id ? payload.new : shipment
+              )
+            )
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'shipments',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            // Add new shipment to the list
+            setShipments(prevShipments => [payload.new, ...prevShipments])
+          }
+        )
+        .subscribe()
+
+      return () => {
+        supabase.removeChannel(channel)
+      }
     } else if (!user) {
       router.push('/auth/login')
     } else {
       setLoading(false)
     }
-  }, [user])
+  }, [user, router])
 
   const fetchShipments = async () => {
     if (!supabase || !user) {

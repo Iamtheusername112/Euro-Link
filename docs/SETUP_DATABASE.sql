@@ -248,6 +248,18 @@ CREATE TRIGGER on_status_update_notify
   FOR EACH ROW EXECUTE FUNCTION public.notify_status_update();
 
 -- ============================================
+-- ENABLE REALTIME FOR STATUS UPDATES
+-- ============================================
+-- This enables real-time synchronization between admin and user pages
+-- When admin updates status, users see it instantly
+
+-- Enable realtime for shipments table
+ALTER PUBLICATION supabase_realtime ADD TABLE shipments;
+
+-- Enable realtime for shipment_status_history table
+ALTER PUBLICATION supabase_realtime ADD TABLE shipment_status_history;
+
+-- ============================================
 -- VERIFY TABLES WERE CREATED
 -- ============================================
 SELECT 

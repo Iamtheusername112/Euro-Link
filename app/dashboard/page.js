@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Package, Phone, MessageSquare, ChevronRight, QrCode } from '@/components/icons'
 import BottomNav from '@/components/layout/BottomNav'
 import Header from '@/components/layout/Header'
+import NotificationBell from '@/components/ui/NotificationBell'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { toast } from '@/lib/utils/toast'
@@ -29,6 +30,8 @@ export default function UserDashboard() {
   useEffect(() => {
     if (!supabase || !user || authLoading) return
 
+    console.log('Setting up real-time subscription for user shipments:', user.id)
+
     const channel = supabase
       .channel('shipment-status-updates')
       .on(
@@ -40,6 +43,7 @@ export default function UserDashboard() {
           filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
+          console.log('Shipment update received:', payload.new)
           // Update current order if it matches
           setCurrentOrder(prevOrder => {
             if (prevOrder && payload.new.id === prevOrder.id) {
@@ -50,17 +54,21 @@ export default function UserDashboard() {
           })
           
           // If status changed and shipment is no longer active, refresh
-          if (currentOrder && payload.new.id === currentOrder.id) {
-            const activeStatuses = ['Pending', 'Paid', 'In Transit', 'On Route', 'Out for Delivery']
-            if (!activeStatuses.includes(payload.new.status)) {
-              fetchDashboardData()
-            }
+          const activeStatuses = ['Pending', 'Paid', 'In Transit', 'On Route', 'Out for Delivery']
+          if (!activeStatuses.includes(payload.new.status)) {
+            fetchDashboardData()
           }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('Subscription status:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to shipment updates')
+        }
+      })
 
     return () => {
+      console.log('Cleaning up subscription')
       supabase.removeChannel(channel)
     }
   }, [user, supabase, authLoading])
@@ -115,6 +123,13 @@ export default function UserDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-900 pb-20">
+      {/* Header with Notifications */}
+      <div className="sticky top-0 z-10 bg-gray-900 border-b border-gray-800">
+        <div className="flex items-center justify-between px-4 py-3">
+          <h1 className="text-xl font-bold text-orange-400">Euro-Link</h1>
+          <NotificationBell />
+        </div>
+      </div>
       <main className="px-4 py-4">
         {/* User Profile and Tracking Section */}
         <div className="flex items-center gap-4 mb-6">

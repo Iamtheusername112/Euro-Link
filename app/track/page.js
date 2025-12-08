@@ -27,6 +27,8 @@ function TrackContent() {
   useEffect(() => {
     if (!supabase || !shipment?.id) return
 
+    console.log('Setting up real-time subscription for shipment:', shipment.id)
+
     const channel = supabase
       .channel(`shipment-${shipment.id}`)
       .on(
@@ -38,6 +40,7 @@ function TrackContent() {
           filter: `id=eq.${shipment.id}`,
         },
         (payload) => {
+          console.log('Shipment update received:', payload.new)
           setShipment(payload.new)
           toast.success(`Status updated: ${payload.new.status}`)
           // Refresh status history
@@ -53,15 +56,22 @@ function TrackContent() {
           filter: `shipment_id=eq.${shipment.id}`,
         },
         () => {
+          console.log('Status history update received')
           fetchStatusHistory(shipment.id)
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('Subscription status:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to shipment updates')
+        }
+      })
 
     return () => {
+      console.log('Cleaning up subscription')
       supabase.removeChannel(channel)
     }
-  }, [shipment?.id])
+  }, [shipment?.id, fetchStatusHistory])
 
   const fetchShipmentData = async () => {
     if (!supabase || !trackingNumber) {

@@ -1,22 +1,60 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Bell } from '@/components/icons'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { toast } from '@/lib/utils/toast'
 
 export default function NotificationBell() {
+  const router = useRouter()
   const { user } = useAuth()
   const [unreadCount, setUnreadCount] = useState(0)
   const [notifications, setNotifications] = useState([])
   const [showDropdown, setShowDropdown] = useState(false)
 
   useEffect(() => {
-    if (user) {
+    if (user && supabase) {
       fetchNotifications()
-      // Poll for new notifications every 30 seconds
-      const interval = setInterval(fetchNotifications, 30000)
-      return () => clearInterval(interval)
+      
+      // Set up real-time subscription for notifications
+      const channel = supabase
+        .channel('notifications-updates')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('New notification received:', payload.new)
+            fetchNotifications()
+            toast.success('New notification received')
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          },
+          () => {
+            console.log('Notification updated')
+            fetchNotifications()
+          }
+        )
+        .subscribe((status) => {
+          console.log('Notification subscription status:', status)
+        })
+
+      return () => {
+        supabase.removeChannel(channel)
+      }
     }
   }, [user])
 
@@ -126,14 +164,25 @@ export default function NotificationBell() {
           <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg z-50 border border-gray-200">
             <div className="p-4 border-b border-gray-200 flex items-center justify-between">
               <h3 className="font-semibold text-gray-800">Notifications</h3>
-              {unreadCount > 0 && (
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button
+                    onClick={markAllAsRead}
+                    className="text-sm text-purple-600 hover:text-purple-700"
+                  >
+                    Mark all read
+                  </button>
+                )}
                 <button
-                  onClick={markAllAsRead}
-                  className="text-sm text-purple-600 hover:text-purple-700"
+                  onClick={() => {
+                    setShowDropdown(false)
+                    router.push('/notifications')
+                  }}
+                  className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                 >
-                  Mark all read
+                  View All
                 </button>
-              )}
+              </div>
             </div>
             
             <div className="max-h-96 overflow-y-auto">

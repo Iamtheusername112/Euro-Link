@@ -252,12 +252,43 @@ CREATE TRIGGER on_status_update_notify
 -- ============================================
 -- This enables real-time synchronization between admin and user pages
 -- When admin updates status, users see it instantly
+-- Note: These commands will fail silently if tables are already in the publication
 
--- Enable realtime for shipments table
-ALTER PUBLICATION supabase_realtime ADD TABLE shipments;
+-- Enable realtime for shipments table (if not already enabled)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+        AND tablename = 'shipments'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE shipments;
+    END IF;
+END $$;
 
--- Enable realtime for shipment_status_history table
-ALTER PUBLICATION supabase_realtime ADD TABLE shipment_status_history;
+-- Enable realtime for shipment_status_history table (if not already enabled)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+        AND tablename = 'shipment_status_history'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE shipment_status_history;
+    END IF;
+END $$;
+
+-- Enable realtime for notifications table (if not already enabled)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+        AND tablename = 'notifications'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
+    END IF;
+END $$;
 
 -- ============================================
 -- VERIFY TABLES WERE CREATED

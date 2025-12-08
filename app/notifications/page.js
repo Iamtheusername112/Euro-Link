@@ -6,6 +6,7 @@ import Header from '@/components/layout/Header'
 import BottomNav from '@/components/layout/BottomNav'
 import { Bell, Package, CheckCircle2 } from '@/components/icons'
 import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabase'
 import { toast } from '@/lib/utils/toast'
 
 export default function NotificationsPage() {
@@ -15,12 +16,50 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (user) {
+    if (user && supabase) {
       fetchNotifications()
-    } else {
+      
+      // Set up real-time subscription for notifications
+      const channel = supabase
+        .channel('notifications-page-updates')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('New notification received:', payload.new)
+            setNotifications(prev => [payload.new, ...prev])
+            toast.success('New notification received')
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('Notification updated:', payload.new)
+            setNotifications(prev => 
+              prev.map(n => n.id === payload.new.id ? payload.new : n)
+            )
+          }
+        )
+        .subscribe()
+
+      return () => {
+        supabase.removeChannel(channel)
+      }
+    } else if (!user) {
       router.push('/auth/login')
     }
-  }, [user])
+  }, [user, router])
 
   const fetchNotifications = async () => {
     if (!user) return

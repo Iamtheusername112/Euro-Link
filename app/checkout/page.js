@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CreditCard, DollarSign, Package } from '@/components/icons'
 import Header from '@/components/layout/Header'
@@ -8,7 +8,7 @@ import BottomNav from '@/components/layout/BottomNav'
 import { toast } from '@/lib/utils/toast'
 import { supabase } from '@/lib/supabase'
 
-export default function CheckoutPage() {
+function CheckoutContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const shipmentId = searchParams.get('id')

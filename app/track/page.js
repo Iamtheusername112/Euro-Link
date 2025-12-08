@@ -1,11 +1,12 @@
 'use client'
 
+import { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Header from '@/components/layout/Header'
 import BottomNav from '@/components/layout/BottomNav'
 import { CheckCircle2, Circle, Package } from '@/components/icons'
 
-export default function TrackPage() {
+function TrackContent() {
   const searchParams = useSearchParams()
   const trackingNumber = searchParams.get('number') || '#9809570923'
   
@@ -76,6 +77,21 @@ export default function TrackPage() {
 
       <BottomNav />
     </div>
+  )
+}
+
+export default function TrackPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 pb-20">
+        <Header title="Track your pack" showBack={true} />
+        <div className="flex items-center justify-center h-64">
+          <p className="text-gray-500">Loading...</p>
+        </div>
+      </div>
+    }>
+      <TrackContent />
+    </Suspense>
   )
 }
 

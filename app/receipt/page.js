@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Printer, Download, ArrowLeft, Package, MapPin, User, Phone, Mail, Calendar } from '@/components/icons'
 import Header from '@/components/layout/Header'
@@ -9,7 +9,7 @@ import { toast } from '@/lib/utils/toast'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
-export default function ReceiptPage() {
+function ReceiptContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const shipmentId = searchParams.get('id')
@@ -326,6 +326,21 @@ export default function ReceiptPage() {
         <BottomNav />
       </div>
     </>
+  )
+}
+
+export default function ReceiptPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 pb-20">
+        <Header title="Receipt" showBack={true} />
+        <div className="flex items-center justify-center h-64">
+          <p className="text-gray-500">Loading...</p>
+        </div>
+      </div>
+    }>
+      <ReceiptContent />
+    </Suspense>
   )
 }
 

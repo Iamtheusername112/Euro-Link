@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Menu, Package, Search, Filter, CheckCircle2, Clock, AlertCircle, Truck, User } from '@/components/icons'
 import Sidebar from '@/components/layout/Sidebar'
@@ -8,7 +8,7 @@ import { toast } from '@/lib/utils/toast'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
-export default function ShipmentsManagementPage() {
+function ShipmentsManagementContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const userId = searchParams.get('userId')
@@ -527,5 +527,17 @@ export default function ShipmentsManagementPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function ShipmentsManagementPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <p className="text-gray-500">Loading...</p>
+      </div>
+    }>
+      <ShipmentsManagementContent />
+    </Suspense>
   )
 }

@@ -47,56 +47,65 @@ export default function LandingPage() {
           <h1 className="text-2xl font-bold text-orange-400 drop-shadow-lg">Euro-Link</h1>
         </div>
 
-        {/* Text Overlay - Centered, positioned lower */}
-        <div className="absolute inset-0 flex flex-col items-center justify-end pb-40 md:pb-32 px-6 z-10">
-          <div className="text-center space-y-3 w-full">
-            <h2 className="text-4xl sm:text-5xl md:text-6xl font-bold text-white leading-tight drop-shadow-lg">
-              Stress-Free
-            </h2>
-            <h2 className="text-4xl sm:text-5xl md:text-6xl font-bold text-white leading-tight drop-shadow-lg">
-              Shipping
-            </h2>
-            <p className="text-white/95 text-sm sm:text-base md:text-lg mt-4 max-w-sm mx-auto font-light px-4">
-              Send your package fast create a shipment in seconds.
-            </p>
+        {/* Text Overlay - Centered */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-6 z-10">
+          <div className="text-center space-y-6 w-full max-w-md mx-auto">
+            <div className="space-y-3">
+              <h2 className="text-4xl sm:text-5xl md:text-6xl font-bold text-white leading-tight drop-shadow-lg">
+                Stress-Free
+              </h2>
+              <h2 className="text-4xl sm:text-5xl md:text-6xl font-bold text-white leading-tight drop-shadow-lg">
+                Shipping
+              </h2>
+              <p className="text-white/95 text-sm sm:text-base md:text-lg mt-4 font-light px-4">
+                Send your package fast create a shipment in seconds.
+              </p>
+            </div>
+
+            {/* Start Button - Centered in the middle */}
+            <div className="pt-8">
+              <button
+                onClick={handleStart}
+                className="w-full max-w-xs mx-auto bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white rounded-full px-8 py-5 flex items-center justify-center gap-3 font-bold text-lg transition-all shadow-2xl shadow-orange-500/50 active:scale-95"
+              >
+                <Rocket size={24} />
+                <span>Start</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Bottom Navigation Bar - Fixed position for mobile */}
-        <div className="fixed bottom-0 left-0 right-0 z-50 pb-safe">
-          <div className="bg-black/90 backdrop-blur-md rounded-t-3xl px-6 py-5 safe-area-inset-bottom shadow-2xl">
-            <div className="flex items-center justify-between max-w-md mx-auto gap-3">
-              {/* Left Arrow Button */}
-              <button
-                onClick={handlePrev}
-                className="w-12 h-12 flex-shrink-0 rounded-full bg-gray-300/20 hover:bg-gray-300/30 flex items-center justify-center transition active:scale-95"
-                aria-label="Previous"
-              >
-                <ChevronLeft size={20} className="text-gray-300" />
-              </button>
+        {/* Bottom Navigation - Optional, less prominent */}
+        <div className="absolute bottom-6 left-0 right-0 z-20">
+          <div className="flex items-center justify-center gap-4 max-w-md mx-auto px-6">
+            {/* Left Arrow Button */}
+            <button
+              onClick={handlePrev}
+              className="w-10 h-10 rounded-full bg-black/30 hover:bg-black/40 flex items-center justify-center transition active:scale-95"
+              aria-label="Previous"
+            >
+              <ChevronLeft size={18} className="text-white" />
+            </button>
 
-              {/* Start Button - Center, Orange - More prominent */}
-              <button
-                onClick={handleStart}
-                className="flex-1 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white rounded-full px-6 py-4 flex items-center justify-center gap-2 font-bold text-base transition-all shadow-lg shadow-orange-500/50 active:scale-95 min-h-[52px] whitespace-nowrap"
-              >
-                <Rocket size={20} />
-                <span>Start</span>
-              </button>
-
-              {/* Right Arrows Button */}
-              <button
-                onClick={handleNext}
-                className="w-12 h-12 flex-shrink-0 rounded-full bg-gray-300/20 hover:bg-gray-300/30 flex items-center justify-center transition active:scale-95"
-                aria-label="Next"
-              >
-                <div className="flex items-center gap-0.5">
-                  <ChevronRight size={14} className="text-gray-300" />
-                  <ChevronRight size={14} className="text-gray-300 -ml-1.5" />
-                  <ChevronRight size={14} className="text-gray-300 -ml-1.5" />
-                </div>
-              </button>
+            {/* Page Indicator Dots */}
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-white"></div>
+              <div className="w-2 h-2 rounded-full bg-white/30"></div>
+              <div className="w-2 h-2 rounded-full bg-white/30"></div>
             </div>
+
+            {/* Right Arrows Button */}
+            <button
+              onClick={handleNext}
+              className="w-10 h-10 rounded-full bg-black/30 hover:bg-black/40 flex items-center justify-center transition active:scale-95"
+              aria-label="Next"
+            >
+              <div className="flex items-center gap-0.5">
+                <ChevronRight size={12} className="text-white" />
+                <ChevronRight size={12} className="text-white -ml-1" />
+                <ChevronRight size={12} className="text-white -ml-1" />
+              </div>
+            </button>
           </div>
         </div>
       </div>

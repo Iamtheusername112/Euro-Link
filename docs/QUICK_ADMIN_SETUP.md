@@ -20,8 +20,8 @@
 2. Navigate to **Authentication** → **Users**
 3. Click **"Add User"** → **"Create new user"**
 4. Fill in:
-   - **Email**: `admin@eurolink.com`
-   - **Password**: `Euro_0987654321`
+   - **Email**: Set via `ADMIN_EMAIL` environment variable (default: `admin@eurolink.com`)
+   - **Password**: Set via `ADMIN_PASSWORD` environment variable (REQUIRED - use a strong password!)
    - ✅ **Auto Confirm User** (IMPORTANT - check this box!)
 5. Click **"Create User"**
 
@@ -81,8 +81,8 @@ You should see:
 
 1. Go to: `http://localhost:3000/admin/login`
 2. Enter:
-   - Email: `admin@eurolink.com`
-   - Password: `Euro_0987654321`
+   - Email: Your `ADMIN_EMAIL` environment variable
+   - Password: Your `ADMIN_PASSWORD` environment variable
 3. You should be redirected to the admin dashboard!
 
 ---
@@ -110,7 +110,7 @@ If you prefer to do everything via SQL, see `docs/CREATE_ADMIN_ACCOUNT.sql` for 
 
 ### Issue: "Invalid login credentials"
 **Solution**:
-- Verify password is exactly: `Euro_0987654321`
+- Verify password matches your `ADMIN_PASSWORD` environment variable
 - Check email is exactly: `admin@eurolink.com` (case-insensitive)
 - Make sure user exists in Supabase Authentication
 

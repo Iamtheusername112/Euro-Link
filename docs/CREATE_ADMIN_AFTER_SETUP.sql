@@ -5,8 +5,8 @@
 
 -- Step 1: First create the auth user via Supabase Dashboard
 -- Go to: Authentication → Users → Add User
--- Email: admin@eurolink.com
--- Password: Euro_0987654321
+-- Email: Set via ADMIN_EMAIL environment variable
+-- Password: Set via ADMIN_PASSWORD environment variable (use a strong password!)
 -- Auto Confirm User: ✅ (IMPORTANT!)
 
 -- Step 2: Then run this SQL to create/update the admin profile

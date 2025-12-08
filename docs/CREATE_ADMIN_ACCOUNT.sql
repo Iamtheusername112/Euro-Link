@@ -6,8 +6,8 @@
 
 -- Step 1: First, create the auth user via Supabase Dashboard
 -- Go to: Authentication → Users → Add User
--- Email: admin@eurolink.com
--- Password: Euro_0987654321
+-- Email: Set via ADMIN_EMAIL environment variable
+-- Password: Set via ADMIN_PASSWORD environment variable (use a strong password!)
 -- Auto Confirm User: ✅ (IMPORTANT!)
 -- Then come back and run Step 2 below
 
@@ -92,8 +92,8 @@ BEGIN
       admin_user_id,
       'authenticated',
       'authenticated',
-      'admin@eurolink.com',
-      crypt('Euro_0987654321', gen_salt('bf')), -- Password hash
+      'admin@eurolink.com', -- Use ADMIN_EMAIL env var
+      crypt('YOUR_SECURE_PASSWORD_HERE', gen_salt('bf')), -- Use ADMIN_PASSWORD env var - NEVER hardcode!
       NOW(), -- Auto-confirm email
       NOW(),
       NOW(),

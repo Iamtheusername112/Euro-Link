@@ -8,8 +8,8 @@ http://localhost:3000/admin/login
 ```
 
 ### Admin Credentials:
-- **Email**: `admin@eurolink.com`
-- **Password**: `Euro_0987654321`
+- **Email**: Set via `ADMIN_EMAIL` environment variable
+- **Password**: Set via `ADMIN_PASSWORD` environment variable (REQUIRED - use a strong password!)
 
 ## 📝 Important Notes
 
@@ -27,7 +27,7 @@ http://localhost:3000/admin/login
 1. Go to `/admin/login`
 2. Enter admin credentials:
    - Email: `admin@eurolink.com`
-   - Password: `Euro_0987654321`
+   - Password: Your `ADMIN_PASSWORD` environment variable (REQUIRED - use a strong password!)
 3. The system will automatically create the admin account if it doesn't exist
 4. You'll be redirected to `/admin/dashboard`
 
@@ -37,7 +37,7 @@ http://localhost:3000/admin/login
    - Go to Supabase Dashboard → Authentication → Users
    - Click "Add User" → "Create new user"
    - Email: `admin@eurolink.com`
-   - Password: `Euro_0987654321`
+   - Password: Your `ADMIN_PASSWORD` environment variable (REQUIRED - use a strong password!)
    - Auto Confirm User: ✅ (check this)
 
 2. **Create Profile**:
@@ -74,8 +74,8 @@ VALUES (
   gen_random_uuid(),
   'authenticated',
   'authenticated',
-  'admin@eurolink.com',
-  crypt('Euro_0987654321', gen_salt('bf')), -- Password hash
+  'admin@eurolink.com', -- Use ADMIN_EMAIL env var
+  crypt('YOUR_SECURE_PASSWORD_HERE', gen_salt('bf')), -- Use ADMIN_PASSWORD env var - NEVER hardcode!
   NOW(),
   NOW(),
   NOW(),
@@ -155,7 +155,7 @@ After logging in with admin credentials at `/admin/login`:
 **Issue**: Admin login fails
 - **Solution**: Check if admin account exists in Supabase Authentication
 - Verify email is `admin@eurolink.com` (case-insensitive)
-- Verify password is exactly `Euro_0987654321`
+- Verify password matches your `ADMIN_PASSWORD` environment variable
 
 **Issue**: "Access denied" error
 - **Solution**: Check that profile role is set to `Admin` in `profiles` table

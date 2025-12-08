@@ -67,3 +67,28 @@ body {
 * {
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Slide animation for Start button */
+@keyframes slideRight {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.slide-right {
+  animation: slideRight 0.6s ease-in-out forwards;
+}
+
+/* Duration utilities */
+.duration-600 {
+  transition-duration: 600ms;
+}
+
+.duration-700 {
+  transition-duration: 700ms;
+}

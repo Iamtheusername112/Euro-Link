@@ -6,9 +6,20 @@ import { ChevronLeft, ChevronRight, Rocket } from '@/components/icons'
 
 export default function LandingPage() {
   const router = useRouter()
+  const [isSliding, setIsSliding] = useState(false)
+  const [isTransitioning, setIsTransitioning] = useState(false)
 
   const handleStart = () => {
-    router.push('/home')
+    // Start slide animation
+    setIsSliding(true)
+    
+    // After slide animation completes, navigate
+    setTimeout(() => {
+      setIsTransitioning(true)
+      setTimeout(() => {
+        router.push('/home')
+      }, 300) // Small delay for transition effect
+    }, 600) // Wait for slide animation to complete
   }
 
   const handleNext = () => {
@@ -20,7 +31,9 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="landing-page bg-gray-100 overflow-hidden relative min-h-screen">
+    <div className={`landing-page bg-gray-100 overflow-hidden relative min-h-screen transition-opacity duration-300 ${
+      isTransitioning ? 'opacity-0' : 'opacity-100'
+    }`}>
       {/* Hero Image Section */}
       <div className="relative h-full w-full min-h-screen">
         {/* Truck Image Background with Sunset */}
@@ -62,15 +75,29 @@ export default function LandingPage() {
               </p>
             </div>
 
-            {/* Start Button - Centered in the middle */}
-            <div className="pt-8">
-              <button
-                onClick={handleStart}
-                className="w-full max-w-xs mx-auto bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white rounded-full px-8 py-5 flex items-center justify-center gap-3 font-bold text-lg transition-all shadow-2xl shadow-orange-500/50 active:scale-95"
-              >
-                <Rocket size={24} />
-                <span>Start</span>
-              </button>
+            {/* Start Button - Centered in the middle with slide animation */}
+            <div className="pt-8 relative overflow-visible">
+              <div className={`w-full max-w-xs mx-auto transition-all duration-700 ease-in-out ${
+                isSliding 
+                  ? 'translate-x-[150%] opacity-0 scale-95' 
+                  : 'translate-x-0 opacity-100 scale-100'
+              }`}>
+                <button
+                  onClick={handleStart}
+                  disabled={isSliding}
+                  className="w-full bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white rounded-full px-8 py-5 flex items-center justify-center gap-3 font-bold text-lg shadow-2xl shadow-orange-500/50 active:scale-95 disabled:pointer-events-none"
+                >
+                  <Rocket 
+                    size={24} 
+                    className={`transition-transform duration-700 ${
+                      isSliding ? 'translate-x-4 rotate-12' : ''
+                    }`} 
+                  />
+                  <span className={`transition-transform duration-700 ${
+                    isSliding ? 'translate-x-2' : ''
+                  }`}>Start</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

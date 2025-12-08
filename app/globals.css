@@ -42,8 +42,25 @@ body {
 .landing-page {
   overflow: hidden;
   height: 100vh;
+  height: 100dvh; /* Dynamic viewport height for mobile */
   position: fixed;
   width: 100%;
+}
+
+/* Safe area insets for mobile browsers */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.safe-area-inset-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+}
+
+/* Ensure bottom navigation is always visible on mobile */
+@supports (padding: max(0px)) {
+  .landing-page .absolute.bottom-0 {
+    padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+  }
 }
 
 /* Smooth transitions */

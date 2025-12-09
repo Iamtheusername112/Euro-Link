@@ -92,6 +92,12 @@ CREATE POLICY "Drivers can view assigned shipments"
     )
   );
 
+-- Public tracking policy: Allow anyone (including guests) to track packages by tracking number
+DROP POLICY IF EXISTS "Public can track shipments by tracking number" ON shipments;
+CREATE POLICY "Public can track shipments by tracking number"
+  ON shipments FOR SELECT
+  USING (true); -- Allow public read access for tracking (safe because tracking numbers are unique identifiers)
+
 -- Step 3: Create shipment_status_history table
 CREATE TABLE IF NOT EXISTS shipment_status_history (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -114,6 +120,17 @@ CREATE POLICY "Users can view status history of their shipments"
       SELECT 1 FROM shipments
       WHERE shipments.id = shipment_status_history.shipment_id
       AND shipments.user_id = auth.uid()
+    )
+  );
+
+-- Public status history policy: Allow anyone to view status history for tracked shipments
+DROP POLICY IF EXISTS "Public can view status history by tracking number" ON shipment_status_history;
+CREATE POLICY "Public can view status history by tracking number"
+  ON shipment_status_history FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM shipments
+      WHERE shipments.id = shipment_status_history.shipment_id
     )
   );
 

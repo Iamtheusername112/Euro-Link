@@ -15,19 +15,87 @@ export async function POST(request) {
       )
     }
 
-    // Fetch shipment details
-    const { data: shipment, error: shipmentError } = await supabase
+    // Fetch shipment details using service role to ensure we get tracking_number
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    
+    if (!serviceRoleKey || !supabaseUrl) {
+      return NextResponse.json(
+        { error: 'Server configuration error. SUPABASE_SERVICE_ROLE_KEY is required.' },
+        { status: 500 }
+      )
+    }
+
+    const { createClient } = await import('@supabase/supabase-js')
+    const adminSupabase = createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    })
+
+    // Fetch shipment with ALL fields to ensure we get tracking_number
+    const { data: shipment, error: shipmentError } = await adminSupabase
       .from('shipments')
       .select('*')
       .eq('id', shipmentId)
       .single()
 
-    if (shipmentError || !shipment) {
+    if (shipmentError) {
+      console.error('❌ Error fetching shipment:', shipmentError)
+      console.error('Shipment ID:', shipmentId)
+      return NextResponse.json(
+        { error: 'Shipment not found', details: shipmentError?.message },
+        { status: 404 }
+      )
+    }
+
+    if (!shipment) {
+      console.error('❌ Shipment is null for ID:', shipmentId)
       return NextResponse.json(
         { error: 'Shipment not found' },
         { status: 404 }
       )
     }
+
+    // Verify tracking number exists and log it
+    console.log('📦 Fetched shipment data:', {
+      id: shipment.id,
+      tracking_number: shipment.tracking_number,
+      user_id: shipment.user_id
+    })
+
+    if (!shipment.tracking_number) {
+      console.error('❌ Shipment missing tracking_number! Full shipment data:', JSON.stringify(shipment, null, 2))
+      return NextResponse.json(
+        { error: 'Shipment tracking number not found in database' },
+        { status: 500 }
+      )
+    }
+
+    // Ensure tracking number is a string and not null/undefined
+    let trackingNumber = String(shipment.tracking_number).trim()
+    
+    if (!trackingNumber || trackingNumber === 'undefined' || trackingNumber === 'null') {
+      console.error('❌ Invalid tracking number:', trackingNumber)
+      return NextResponse.json(
+        { error: 'Invalid tracking number in database' },
+        { status: 500 }
+      )
+    }
+
+    // Prevent test tracking numbers from being used in real emails
+    if (trackingNumber.includes('TEST') || trackingNumber.includes('test') || trackingNumber === 'EU-TEST123456') {
+      console.error('❌ BLOCKED: Test tracking number detected in real shipment:', trackingNumber)
+      console.error('Shipment ID:', shipmentId)
+      console.error('Full shipment data:', JSON.stringify(shipment, null, 2))
+      return NextResponse.json(
+        { error: 'Cannot send email: Shipment has test tracking number. Please use a real shipment.' },
+        { status: 400 }
+      )
+    }
+
+    console.log('✅ Using tracking number for email:', trackingNumber)
 
     // Fetch driver details
     const { data: driver, error: driverError } = await supabase
@@ -43,37 +111,39 @@ export async function POST(request) {
       )
     }
 
-    // Get user email - try to fetch from auth.users via service role
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    // Get user email using service role
     let userEmail = null
 
-    if (serviceRoleKey) {
-      // Use service role to access auth.users
-      const { createClient } = await import('@supabase/supabase-js')
-      const adminSupabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL,
-        serviceRoleKey,
-        {
-          auth: {
-            autoRefreshToken: false,
-            persistSession: false
-          }
-        }
-      )
+    try {
+      console.log('Fetching user email for:', shipment.user_id)
+      const { data: authUser, error: authError } = await adminSupabase.auth.admin.getUserById(shipment.user_id)
       
-      const { data: authUser } = await adminSupabase.auth.admin.getUserById(shipment.user_id)
-      userEmail = authUser?.user?.email
+      if (authError) {
+        console.error('Error fetching user from auth:', authError)
+      } else {
+        userEmail = authUser?.user?.email
+        console.log('User email found:', userEmail ? 'Yes' : 'No', userEmail)
+      }
+    } catch (error) {
+      console.error('Error accessing auth.users:', error)
     }
 
     // Fallback: try to get email from profiles if stored there
     if (!userEmail) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('id', shipment.user_id)
-        .single()
-      
-      userEmail = profile?.email
+      try {
+        const { data: profile, error: profileError } = await adminSupabase
+          .from('profiles')
+          .select('email')
+          .eq('id', shipment.user_id)
+          .single()
+        
+        if (!profileError && profile?.email) {
+          userEmail = profile.email
+          console.log('User email found in profiles:', userEmail)
+        }
+      } catch (error) {
+        console.error('Error fetching email from profiles:', error)
+      }
     }
 
     if (!userEmail) {
@@ -90,10 +160,11 @@ export async function POST(request) {
       cost: shipment.cost,
     }
 
-    // Send email
+    // Send email with verified tracking number
+    console.log('📧 Sending driver assignment email with tracking number:', trackingNumber)
     const emailResult = await sendDriverAssignmentEmail({
       to: userEmail,
-      trackingNumber: shipment.tracking_number,
+      trackingNumber: trackingNumber, // Use the verified/cleaned tracking number
       driverName: driver.full_name || 'Driver',
       shipmentDetails,
     })

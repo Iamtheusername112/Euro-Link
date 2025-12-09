@@ -1,22 +1,37 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 
 export async function GET(request) {
   try {
-    if (!supabase) {
-      return NextResponse.json(
-        { error: 'Database not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local' },
-        { status: 500 }
-      )
-    }
-
     const { searchParams } = new URL(request.url)
     const trackingNumber = searchParams.get('number')
     const userId = searchParams.get('userId')
     const status = searchParams.get('status')
 
+    // For public tracking (by tracking number), use service role to bypass RLS
     if (trackingNumber) {
-      const { data, error } = await supabase
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+      if (!supabaseUrl) {
+        return NextResponse.json(
+          { error: 'Database not configured. Please set NEXT_PUBLIC_SUPABASE_URL in .env.local' },
+          { status: 500 }
+        )
+      }
+
+      // Use service role for public tracking (bypasses RLS)
+      const adminSupabase = serviceRoleKey
+        ? createClient(supabaseUrl, serviceRoleKey, {
+            auth: {
+              autoRefreshToken: false,
+              persistSession: false,
+            },
+          })
+        : supabase // Fallback to regular client if service role not available
+
+      const { data, error } = await adminSupabase
         .from('shipments')
         .select(`
           *,
@@ -28,14 +43,39 @@ export async function GET(request) {
             notes
           )
         `)
-        .eq('tracking_number', trackingNumber)
+        .eq('tracking_number', trackingNumber.trim())
         .single()
 
       if (error) {
-        console.error('Supabase error:', error)
-        return NextResponse.json({ error: error.message }, { status: 500 })
+        console.error('Error fetching shipment by tracking number:', error)
+        if (error.code === 'PGRST116') {
+          return NextResponse.json(
+            { error: 'Shipment not found' },
+            { status: 404 }
+          )
+        }
+        return NextResponse.json(
+          { error: error.message || 'Failed to fetch shipment' },
+          { status: 500 }
+        )
       }
+
+      if (!data) {
+        return NextResponse.json(
+          { error: 'Shipment not found' },
+          { status: 404 }
+        )
+      }
+
       return NextResponse.json(data)
+    }
+
+    // For authenticated queries (by userId or status), use regular client
+    if (!supabase) {
+      return NextResponse.json(
+        { error: 'Database not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local' },
+        { status: 500 }
+      )
     }
 
     let query = supabase

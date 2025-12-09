@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Menu, X, Package, Users, DollarSign, Truck, TrendingUp, Clock, CheckCircle2, AlertCircle, Plus, Search, Phone, Send, User } from '@/components/icons'
+import { Menu, X, Package, Users, DollarSign, Truck, TrendingUp, Clock, CheckCircle2, AlertCircle, Plus, Search, Phone, Send, User, Trash2, Mail } from '@/components/icons'
 import Sidebar from '@/components/layout/Sidebar'
 import { toast } from '@/lib/utils/toast'
 import { supabase } from '@/lib/supabase'
@@ -50,6 +50,10 @@ export default function AdminDashboard() {
   const [selectedShipment, setSelectedShipment] = useState(null)
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [showDriverModal, setShowDriverModal] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [showSendEmailModal, setShowSendEmailModal] = useState(false)
+  const [sendEmailLoading, setSendEmailLoading] = useState(false)
   const [newStatus, setNewStatus] = useState('')
   const [drivers, setDrivers] = useState([])
   const [selectedDriverId, setSelectedDriverId] = useState('')
@@ -379,7 +383,8 @@ export default function AdminDashboard() {
         })
       } else {
         console.log('✅ Test email sent successfully:', result)
-        toast.success(`Test email sent to ${testEmailAddress}! Check inbox and spam folder.`)
+        const recipientEmail = result.shipmentData?.recipientEmail || 'recipient'
+        toast.success(`Test email sent to ${recipientEmail}! Check their inbox and spam folder.`)
         setShowEmailTestModal(false)
         setTestEmailAddress('')
         setEmailErrorDetails(null) // Clear any previous errors
@@ -564,6 +569,108 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error('Error assigning driver:', error)
       toast.error('Failed to assign driver')
+    }
+  }
+
+  const sendEmailToRecipient = async () => {
+    if (!selectedShipment) return
+
+    // Get recipient email from shipment
+    let recipientEmail = null
+    
+    if (selectedShipment.recipient_info && typeof selectedShipment.recipient_info === 'object') {
+      recipientEmail = selectedShipment.recipient_info.email
+    } else if (typeof selectedShipment.recipient_info === 'string') {
+      try {
+        const recipientInfo = JSON.parse(selectedShipment.recipient_info)
+        recipientEmail = recipientInfo.email
+      } catch (e) {
+        console.error('Error parsing recipient_info:', e)
+      }
+    }
+
+    if (!recipientEmail) {
+      toast.error('Recipient email not found for this shipment')
+      setShowSendEmailModal(false)
+      setSelectedShipment(null)
+      return
+    }
+
+    setSendEmailLoading(true)
+
+    try {
+      const response = await fetch('/api/email/send-status-update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          shipmentId: selectedShipment.id,
+          newStatus: selectedShipment.status || 'In Transit',
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Email sending failed:', errorData)
+        toast.error(errorData.error || 'Failed to send email')
+        return
+      }
+
+      const result = await response.json()
+      console.log('✅ Email sent successfully:', result)
+      
+      toast.success(`Email sent successfully to ${recipientEmail}`)
+      setShowSendEmailModal(false)
+      setSelectedShipment(null)
+    } catch (error) {
+      console.error('Error sending email:', error)
+      toast.error(`Failed to send email: ${error.message || 'Unknown error'}`)
+    } finally {
+      setSendEmailLoading(false)
+    }
+  }
+
+  const deleteShipment = async () => {
+    if (!selectedShipment) return
+
+    setDeleteLoading(true)
+    try {
+      // Delete related data first (cascading deletes)
+      const shipmentId = selectedShipment.id
+
+      // Delete status history
+      await supabase
+        .from('shipment_status_history')
+        .delete()
+        .eq('shipment_id', shipmentId)
+
+      // Delete notifications related to this shipment
+      await supabase
+        .from('notifications')
+        .delete()
+        .eq('shipment_id', shipmentId)
+
+      // Delete the shipment itself
+      const { error } = await supabase
+        .from('shipments')
+        .delete()
+        .eq('id', shipmentId)
+
+      if (error) throw error
+
+      toast.success(`Shipment ${selectedShipment.tracking_number} deleted successfully`)
+      setShowDeleteModal(false)
+      setSelectedShipment(null)
+      
+      // Refresh data
+      await fetchShipments()
+      await fetchDashboardData()
+    } catch (error) {
+      console.error('Error deleting shipment:', error)
+      toast.error(`Failed to delete shipment: ${error.message || 'Unknown error'}`)
+    } finally {
+      setDeleteLoading(false)
     }
   }
 
@@ -1040,6 +1147,29 @@ export default function AdminDashboard() {
                                     Assign
                                   </button>
                                 )}
+                                <button
+                                  onClick={() => {
+                                    setSelectedShipment(shipment)
+                                    setShowSendEmailModal(true)
+                                  }}
+                                  className="text-orange-600 hover:text-orange-700 text-sm font-medium flex items-center gap-1"
+                                  title="Send email to recipient"
+                                  disabled={sendEmailLoading}
+                                >
+                                  <Mail size={16} />
+                                  Email
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedShipment(shipment)
+                                    setShowDeleteModal(true)
+                                  }}
+                                  className="text-red-600 hover:text-red-700 text-sm font-medium flex items-center gap-1"
+                                  title="Delete shipment"
+                                >
+                                  <Trash2 size={16} />
+                                  Delete
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -1237,24 +1367,18 @@ export default function AdminDashboard() {
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold mb-4">🧪 Test Email Sending</h3>
             <p className="text-sm text-gray-600 mb-4">
-              Send a test email to verify your email configuration is working correctly.
+              This will send a test email using real shipment data. The email will be sent to the recipient email address from the most recent shipment.
             </p>
             
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  value={testEmailAddress}
-                  onChange={(e) => setTestEmailAddress(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  placeholder="your-email@example.com"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Enter the email address where you want to receive the test email
-                </p>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-800 font-medium mb-1">How it works:</p>
+                <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                  <li>Fetches the most recent shipment from the database</li>
+                  <li>Uses the recipient email address from that shipment</li>
+                  <li>Sends email with real tracking number and shipment details</li>
+                  <li>Perfect for testing the actual email flow</li>
+                </ul>
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
@@ -1324,10 +1448,181 @@ export default function AdminDashboard() {
               </button>
               <button
                 onClick={testEmailSending}
-                disabled={testEmailLoading || !testEmailAddress}
+                disabled={testEmailLoading}
                 className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white py-2 rounded-lg font-medium transition"
               >
                 {testEmailLoading ? 'Sending...' : 'Send Test Email'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && selectedShipment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <Trash2 size={24} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Delete Shipment</h3>
+                <p className="text-sm text-gray-500">This action cannot be undone</p>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <p className="text-sm text-gray-700 mb-2">
+                Are you sure you want to delete this shipment?
+              </p>
+              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <p className="text-sm font-medium text-gray-900">
+                  Tracking Number: <span className="font-mono">{selectedShipment.tracking_number}</span>
+                </p>
+                <p className="text-xs text-gray-600 mt-1">
+                  From: {selectedShipment.pickup_location?.split(',')[0] || 'N/A'}
+                </p>
+                <p className="text-xs text-gray-600">
+                  To: {selectedShipment.drop_off_location?.split(',')[0] || 'N/A'}
+                </p>
+                <p className="text-xs text-gray-600">
+                  Status: <span className="font-medium">{selectedShipment.status}</span>
+                </p>
+              </div>
+              <p className="text-xs text-red-600 mt-3">
+                ⚠️ This will also delete all related status history and notifications.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false)
+                  setSelectedShipment(null)
+                }}
+                disabled={deleteLoading}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 text-gray-700 py-2 rounded-lg font-medium transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={deleteShipment}
+                disabled={deleteLoading}
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white py-2 rounded-lg font-medium transition flex items-center justify-center gap-2"
+              >
+                {deleteLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={16} />
+                    Delete Shipment
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send Email Modal */}
+      {showSendEmailModal && selectedShipment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                <Mail size={24} className="text-orange-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Send Status Email</h3>
+                <p className="text-sm text-gray-500">Send email to recipient</p>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 mb-4">
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Tracking Number</p>
+                    <p className="text-sm font-mono font-medium text-gray-900">
+                      {selectedShipment.tracking_number}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Recipient Email</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {selectedShipment.recipient_info?.email || 
+                       (typeof selectedShipment.recipient_info === 'string' 
+                         ? (() => {
+                             try {
+                               return JSON.parse(selectedShipment.recipient_info || '{}').email || 'N/A'
+                             } catch {
+                               return 'N/A'
+                             }
+                           })()
+                         : 'N/A')}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Recipient Name</p>
+                    <p className="text-sm text-gray-900">
+                      {selectedShipment.recipient_info?.name || 
+                       (typeof selectedShipment.recipient_info === 'string' 
+                         ? (() => {
+                             try {
+                               return JSON.parse(selectedShipment.recipient_info || '{}').name || 'N/A'
+                             } catch {
+                               return 'N/A'
+                             }
+                           })()
+                         : 'N/A')}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Current Status</p>
+                    <p className="text-sm text-gray-900">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(selectedShipment.status)}`}>
+                        {selectedShipment.status}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-gray-600">
+                This will send a status update email to the recipient email address provided when this shipment was created.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowSendEmailModal(false)
+                  setSelectedShipment(null)
+                }}
+                disabled={sendEmailLoading}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 text-gray-700 py-2 rounded-lg font-medium transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={sendEmailToRecipient}
+                disabled={sendEmailLoading}
+                className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white py-2 rounded-lg font-medium transition flex items-center justify-center gap-2"
+              >
+                {sendEmailLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Mail size={16} />
+                    Send Email
+                  </>
+                )}
               </button>
             </div>
           </div>

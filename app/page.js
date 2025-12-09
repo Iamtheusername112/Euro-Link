@@ -75,8 +75,40 @@ export default function LandingPage() {
               </p>
             </div>
 
+            {/* Tracking Input - For guests to track packages */}
+            <div className="pt-4 w-full max-w-xs mx-auto">
+              <div className="bg-white/95 backdrop-blur-sm rounded-lg p-4 shadow-xl">
+                <p className="text-sm text-gray-700 mb-2 font-medium">Track Your Package</p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    const formData = new FormData(e.target)
+                    const trackingNumber = formData.get('trackingNumber')
+                    if (trackingNumber) {
+                      router.push(`/track?number=${encodeURIComponent(trackingNumber.trim())}`)
+                    }
+                  }}
+                  className="flex gap-2"
+                >
+                  <input
+                    type="text"
+                    name="trackingNumber"
+                    placeholder="Enter tracking number"
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-900 text-sm"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg font-medium text-sm transition"
+                  >
+                    Track
+                  </button>
+                </form>
+              </div>
+            </div>
+
             {/* Start Button - Centered in the middle with slide animation */}
-            <div className="pt-8 relative overflow-visible">
+            <div className="pt-4 relative overflow-visible">
               <div className={`w-full max-w-xs mx-auto transition-all duration-700 ease-in-out ${
                 isSliding 
                   ? 'translate-x-[150%] opacity-0 scale-95' 

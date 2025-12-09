@@ -143,40 +143,69 @@ export default function CreateShipmentPage() {
     if (!validateStep(3)) return
     
     try {
+      // Validate required fields
+      if (!formData.pickupAddress || !formData.deliveryAddress) {
+        toast.error('Please fill in pickup and delivery addresses')
+        return
+      }
+
       // Calculate cost for this shipment
-      const costResponse = await fetch('/api/calculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pickupLocation: `${formData.pickupAddress}, ${formData.pickupCity}`,
-          dropOff: `${formData.deliveryAddress}, ${formData.deliveryCity}`,
-          packageSize: formData.packageSize,
-          deliveryType: formData.deliveryType,
-        }),
-      })
-      const costData = await costResponse.json()
+      let cost = estimatedCost || 0
+      
+      try {
+        const costResponse = await fetch('/api/calculate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pickupLocation: `${formData.pickupAddress}, ${formData.pickupCity}`,
+            dropOff: `${formData.deliveryAddress}, ${formData.deliveryCity}`,
+            packageSize: formData.packageSize,
+            deliveryType: formData.deliveryType,
+          }),
+        })
+        
+        if (!costResponse.ok) {
+          throw new Error(`Cost calculation failed: ${costResponse.statusText}`)
+        }
+        
+        const costData = await costResponse.json()
+        
+        if (!costData || typeof costData.cost !== 'number') {
+          throw new Error('Invalid cost data received')
+        }
+        
+        cost = costData.cost
+      } catch (costError) {
+        console.error('Error calculating cost:', costError)
+        if (cost === 0) {
+          toast.error('Failed to calculate cost. Please try again.')
+          return
+        }
+        // Use estimated cost if available, otherwise show warning
+        toast.warning('Using estimated cost. Cost calculation failed.')
+      }
 
       const shipmentData = {
         id: editingIndex !== null ? shipments[editingIndex].id : Date.now(),
-        senderName: formData.senderName,
-        senderPhone: formData.senderPhone,
-        senderEmail: formData.senderEmail,
-        pickupAddress: formData.pickupAddress,
-        pickupCity: formData.pickupCity,
-        pickupPostalCode: formData.pickupPostalCode,
-        recipientName: formData.recipientName,
-        recipientPhone: formData.recipientPhone,
-        recipientEmail: formData.recipientEmail,
-        deliveryAddress: formData.deliveryAddress,
-        deliveryCity: formData.deliveryCity,
-        deliveryPostalCode: formData.deliveryPostalCode,
-        packageSize: formData.packageSize,
-        packageWeight: formData.packageWeight,
-        packageDescription: formData.packageDescription,
-        packageValue: formData.packageValue,
-        deliveryType: formData.deliveryType,
-        specialInstructions: formData.specialInstructions,
-        cost: costData.cost,
+        senderName: formData.senderName || '',
+        senderPhone: formData.senderPhone || '',
+        senderEmail: formData.senderEmail || '',
+        pickupAddress: formData.pickupAddress || '',
+        pickupCity: formData.pickupCity || '',
+        pickupPostalCode: formData.pickupPostalCode || '',
+        recipientName: formData.recipientName || '',
+        recipientPhone: formData.recipientPhone || '',
+        recipientEmail: formData.recipientEmail || '',
+        deliveryAddress: formData.deliveryAddress || '',
+        deliveryCity: formData.deliveryCity || '',
+        deliveryPostalCode: formData.deliveryPostalCode || '',
+        packageSize: formData.packageSize || '5KG',
+        packageWeight: formData.packageWeight || '',
+        packageDescription: formData.packageDescription || '',
+        packageValue: formData.packageValue || '0',
+        deliveryType: formData.deliveryType || 'Normal',
+        specialInstructions: formData.specialInstructions || '',
+        cost: cost,
       }
 
       if (editingIndex !== null) {
@@ -196,8 +225,8 @@ export default function CreateShipmentPage() {
       resetForm()
       setStep(4) // Go to review step
     } catch (error) {
-      console.error('Error calculating cost:', error)
-      toast.error('Failed to calculate cost')
+      console.error('Error adding shipment to list:', error)
+      toast.error(error.message || 'Failed to add shipment to list')
     }
   }
 
@@ -271,6 +300,12 @@ export default function CreateShipmentPage() {
       return
     }
 
+    if (!user) {
+      toast.error('Please login to create shipments')
+      router.push('/auth/login?redirect=/create-shipment')
+      return
+    }
+
     if (!supabase) {
       toast.error('Database not configured. Please check your .env.local file.')
       return
@@ -279,70 +314,131 @@ export default function CreateShipmentPage() {
     setLoading(true)
     try {
       const createdShipments = []
+      const errors = []
       
       // Create all shipments
-      for (const shipment of shipments) {
-        const trackingNumber = generateTrackingNumber()
+      for (let i = 0; i < shipments.length; i++) {
+        const shipment = shipments[i]
+        
+        try {
+          // Validate shipment data
+          if (!shipment.pickupAddress || !shipment.deliveryAddress) {
+            throw new Error(`Shipment #${i + 1}: Missing pickup or delivery address`)
+          }
+          
+          if (!shipment.cost || isNaN(shipment.cost)) {
+            console.warn(`Shipment #${i + 1}: Invalid cost, recalculating...`)
+            // Recalculate cost if missing
+            try {
+              const costResponse = await fetch('/api/calculate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  pickupLocation: `${shipment.pickupAddress}, ${shipment.pickupCity}`,
+                  dropOff: `${shipment.deliveryAddress}, ${shipment.deliveryCity}`,
+                  packageSize: shipment.packageSize,
+                  deliveryType: shipment.deliveryType,
+                }),
+              })
+              const costData = await costResponse.json()
+              if (costResponse.ok && costData.cost) {
+                shipment.cost = costData.cost
+              } else {
+                throw new Error(`Shipment #${i + 1}: Failed to calculate cost`)
+              }
+            } catch (costError) {
+              throw new Error(`Shipment #${i + 1}: Failed to calculate cost - ${costError.message}`)
+            }
+          }
 
-        const { data, error } = await supabase
-          .from('shipments')
-          .insert({
-            tracking_number: trackingNumber,
-            user_id: user.id,
-            status: 'Pending',
-            pickup_location: `${shipment.pickupAddress}, ${shipment.pickupCity} ${shipment.pickupPostalCode}`,
-            drop_off_location: `${shipment.deliveryAddress}, ${shipment.deliveryCity} ${shipment.deliveryPostalCode}`,
-            package_size: shipment.packageSize,
-            delivery_type: shipment.deliveryType,
-            cost: shipment.cost,
-            sender_info: {
-              name: shipment.senderName,
-              phone: shipment.senderPhone,
-              email: shipment.senderEmail,
-              address: `${shipment.pickupAddress}, ${shipment.pickupCity} ${shipment.pickupPostalCode}`,
-            },
-            recipient_info: {
-              name: shipment.recipientName,
-              phone: shipment.recipientPhone,
-              email: shipment.recipientEmail,
-              address: `${shipment.deliveryAddress}, ${shipment.deliveryCity} ${shipment.deliveryPostalCode}`,
-            },
-            package_info: {
-              weight: shipment.packageWeight,
-              description: shipment.packageDescription,
-              value: shipment.packageValue,
-              size: shipment.packageSize,
-            },
-            special_instructions: shipment.specialInstructions,
-          })
-          .select()
-          .single()
+          const trackingNumber = generateTrackingNumber()
+          console.log(`Creating shipment #${i + 1} with tracking: ${trackingNumber}`)
 
-        if (error) throw error
+          const { data, error } = await supabase
+            .from('shipments')
+            .insert({
+              tracking_number: trackingNumber,
+              user_id: user.id,
+              status: 'Pending',
+              pickup_location: `${shipment.pickupAddress}, ${shipment.pickupCity} ${shipment.pickupPostalCode || ''}`.trim(),
+              drop_off_location: `${shipment.deliveryAddress}, ${shipment.deliveryCity} ${shipment.deliveryPostalCode || ''}`.trim(),
+              package_size: shipment.packageSize || '5KG',
+              delivery_type: shipment.deliveryType || 'Normal',
+              cost: parseFloat(shipment.cost) || 0,
+              sender_info: {
+                name: shipment.senderName || '',
+                phone: shipment.senderPhone || '',
+                email: shipment.senderEmail || '',
+                address: `${shipment.pickupAddress}, ${shipment.pickupCity} ${shipment.pickupPostalCode || ''}`.trim(),
+              },
+              recipient_info: {
+                name: shipment.recipientName || '',
+                phone: shipment.recipientPhone || '',
+                email: shipment.recipientEmail || '',
+                address: `${shipment.deliveryAddress}, ${shipment.deliveryCity} ${shipment.deliveryPostalCode || ''}`.trim(),
+              },
+              package_info: {
+                weight: shipment.packageWeight || '',
+                description: shipment.packageDescription || '',
+                value: shipment.packageValue || '0',
+                size: shipment.packageSize || '5KG',
+              },
+              special_instructions: shipment.specialInstructions || null,
+            })
+            .select()
+            .single()
 
-        // Create initial status
-        await supabase
-          .from('shipment_status_history')
-          .insert({
-            shipment_id: data.id,
-            status: 'Pending',
-            location: shipment.pickupAddress,
-            notes: 'Shipment created',
-          })
+          if (error) {
+            console.error(`Error creating shipment #${i + 1}:`, error)
+            throw new Error(`Shipment #${i + 1}: ${error.message || 'Database error'}`)
+          }
 
-        createdShipments.push(data)
+          if (!data || !data.id) {
+            throw new Error(`Shipment #${i + 1}: No data returned from database`)
+          }
+
+          console.log(`✅ Shipment #${i + 1} created successfully:`, data.id)
+
+          // Create initial status history
+          const { error: historyError } = await supabase
+            .from('shipment_status_history')
+            .insert({
+              shipment_id: data.id,
+              status: 'Pending',
+              location: shipment.pickupAddress || 'Shipment created',
+              notes: 'Shipment created',
+            })
+
+          if (historyError) {
+            console.warn(`Warning: Failed to create status history for shipment #${i + 1}:`, historyError)
+            // Don't fail the whole operation if status history fails
+          }
+
+          createdShipments.push(data)
+        } catch (shipmentError) {
+          console.error(`Failed to create shipment #${i + 1}:`, shipmentError)
+          errors.push(`Shipment #${i + 1}: ${shipmentError.message}`)
+          // Continue with next shipment instead of stopping
+        }
       }
 
-      const totalCost = shipments.reduce((sum, s) => sum + s.cost, 0)
+      if (createdShipments.length === 0) {
+        throw new Error(`Failed to create any shipments. Errors: ${errors.join('; ')}`)
+      }
+
+      if (errors.length > 0) {
+        toast.warning(`Created ${createdShipments.length} of ${shipments.length} shipments. Some failed: ${errors.join('; ')}`)
+      } else {
+        toast.success(`Successfully created ${createdShipments.length} shipment(s)!`)
+      }
+
       const shipmentIds = createdShipments.map(s => s.id).join(',')
       
-      toast.success(`Successfully created ${shipments.length} shipment(s)!`)
-      
-      // Redirect to checkout with all shipment IDs
+      // Redirect to checkout with successfully created shipment IDs
       router.push(`/checkout?ids=${shipmentIds}`)
     } catch (error) {
       console.error('Error creating shipments:', error)
-      toast.error(error.message || 'Failed to create shipments')
+      toast.error(error.message || 'Failed to create shipments. Please check console for details.')
     } finally {
       setLoading(false)
     }

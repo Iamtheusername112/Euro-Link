@@ -47,25 +47,76 @@ export async function GET(request) {
         .single()
 
       if (error) {
-        console.error('Error fetching shipment by tracking number:', error)
+        console.error('❌ Supabase Error:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          trackingNumber: trackingNumber.trim(),
+        })
+
+        // Handle specific error codes
         if (error.code === 'PGRST116') {
           return NextResponse.json(
-            { error: 'Shipment not found' },
+            { 
+              error: 'Shipment not found',
+              message: `No shipment found with tracking number: ${trackingNumber.trim()}`,
+              trackingNumber: trackingNumber.trim(),
+            },
             { status: 404 }
           )
         }
+
+        if (error.code === '42501') {
+          return NextResponse.json(
+            { 
+              error: 'Permission denied',
+              message: 'Unable to access shipment data. Please contact support.',
+              details: 'RLS policy may be blocking access',
+            },
+            { status: 403 }
+          )
+        }
+
+        if (error.code === 'PGRST301') {
+          return NextResponse.json(
+            { 
+              error: 'Multiple shipments found',
+              message: 'Multiple shipments found with the same tracking number. Please contact support.',
+            },
+            { status: 500 }
+          )
+        }
+
+        // Generic error
         return NextResponse.json(
-          { error: error.message || 'Failed to fetch shipment' },
+          { 
+            error: error.message || 'Failed to fetch shipment',
+            code: error.code,
+            details: error.details,
+            trackingNumber: trackingNumber.trim(),
+          },
           { status: 500 }
         )
       }
 
       if (!data) {
+        console.warn('⚠️ No data returned for tracking number:', trackingNumber.trim())
         return NextResponse.json(
-          { error: 'Shipment not found' },
+          { 
+            error: 'Shipment not found',
+            message: `No shipment data found for tracking number: ${trackingNumber.trim()}`,
+            trackingNumber: trackingNumber.trim(),
+          },
           { status: 404 }
         )
       }
+
+      console.log('✅ Shipment fetched successfully:', {
+        trackingNumber: data.tracking_number,
+        status: data.status,
+        hasHistory: !!data.shipment_status_history?.length,
+      })
 
       return NextResponse.json(data)
     }
@@ -100,8 +151,21 @@ export async function GET(request) {
     }
     return NextResponse.json(data)
   } catch (error) {
-    console.error('API error:', error)
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 })
+    console.error('❌ API Route Error (GET):', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+      trackingNumber: trackingNumber || 'N/A',
+    })
+    
+    return NextResponse.json(
+      { 
+        error: error.message || 'Internal server error',
+        type: error.name || 'UnknownError',
+        message: 'An unexpected error occurred while fetching shipment data',
+      },
+      { status: 500 }
+    )
   }
 }
 

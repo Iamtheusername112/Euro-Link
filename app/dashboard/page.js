@@ -18,11 +18,22 @@ export default function UserDashboard() {
   const [availableCities, setAvailableCities] = useState([])
   const [loading, setLoading] = useState(true)
   const hasRedirected = useRef(false)
+  const loadingTimeoutRef = useRef(null)
 
   useEffect(() => {
-    if (authLoading) return // Wait for auth to load
+    // Clear any existing timeout
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current)
+      loadingTimeoutRef.current = null
+    }
+
+    if (authLoading) {
+      setLoading(true) // Show loading while auth is loading
+      return // Wait for auth to load
+    }
     
     if (!user) {
+      setLoading(false) // No user, stop loading
       if (!hasRedirected.current) {
         hasRedirected.current = true
         // Use window.location for hard redirect to prevent loops
@@ -32,7 +43,30 @@ export default function UserDashboard() {
     }
     
     // User is authenticated, fetch data
-    fetchDashboardData()
+    if (supabase && user) {
+      // Set a safety timeout to prevent infinite loading (10 seconds)
+      loadingTimeoutRef.current = setTimeout(() => {
+        console.warn('⚠️ Dashboard loading timeout - forcing display after 10 seconds')
+        setLoading(false)
+      }, 10000)
+
+      fetchDashboardData().finally(() => {
+        // Clear timeout when data fetch completes
+        if (loadingTimeoutRef.current) {
+          clearTimeout(loadingTimeoutRef.current)
+          loadingTimeoutRef.current = null
+        }
+      })
+    } else {
+      setLoading(false) // If supabase or user is missing, stop loading
+    }
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current)
+      }
+    }
   }, [user, authLoading]) // Removed router from dependencies
 
   // Set up real-time subscription for status updates
@@ -82,7 +116,10 @@ export default function UserDashboard() {
   }, [user, supabase, authLoading])
 
   const fetchDashboardData = async (showLoading = true) => {
-    if (!supabase || !user) return
+    if (!supabase || !user) {
+      setLoading(false) // Ensure loading is cleared if conditions aren't met
+      return
+    }
 
     if (showLoading) {
       setLoading(true)
@@ -150,8 +187,10 @@ export default function UserDashboard() {
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
-    } finally {
+      // Even on error, stop loading so user can see the dashboard
       setLoading(false)
+    } finally {
+      setLoading(false) // Always ensure loading is cleared
     }
   }
 
@@ -162,11 +201,44 @@ export default function UserDashboard() {
     return 'Good Evening'
   }
 
-  if (authLoading || loading) {
+  // Show loading state
+  if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-900 pb-20">
         <div className="flex items-center justify-center h-screen">
-          <p className="text-white">Loading...</p>
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
+            <p className="text-white">Checking authentication...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // If no user and not loading auth, show redirecting
+  if (!user && !authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 pb-20">
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
+            <p className="text-white">Redirecting...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading only if we have a user and are fetching data
+  if (loading && user) {
+    return (
+      <div className="min-h-screen bg-gray-900 pb-20">
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
+            <p className="text-white">Loading dashboard...</p>
+            <p className="text-gray-400 text-sm mt-2">This may take a moment</p>
+          </div>
         </div>
       </div>
     )

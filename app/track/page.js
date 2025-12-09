@@ -21,7 +21,10 @@ function TrackContent() {
 
   // Define fetchStatusHistory first using useCallback
   const fetchStatusHistory = useCallback(async (shipmentId) => {
-    if (!supabase || !shipmentId) return
+    if (!supabase || !shipmentId) {
+      console.warn('⚠️ Cannot fetch status history:', { hasSupabase: !!supabase, shipmentId })
+      return
+    }
 
     try {
       const { data, error } = await supabase
@@ -31,12 +34,28 @@ function TrackContent() {
         .order('timestamp', { ascending: true })
 
       if (error) {
-        console.error('Error fetching status history:', error)
+        console.error('❌ Error fetching status history:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          shipmentId,
+        })
+        // Don't show error toast for status history - it's not critical
+        setStatusHistory([])
       } else {
+        console.log('✅ Status history fetched:', {
+          count: data?.length || 0,
+          shipmentId,
+        })
         setStatusHistory(data || [])
       }
     } catch (error) {
-      console.error('Error fetching status history:', error)
+      console.error('❌ Exception fetching status history:', {
+        message: error.message,
+        name: error.name,
+        shipmentId,
+      })
+      setStatusHistory([])
     }
   }, [])
 
@@ -47,31 +66,105 @@ function TrackContent() {
     }
 
     setLoading(true)
+    let response = null
+    
     try {
       // Use API route for public tracking (bypasses RLS)
-      const response = await fetch(`/api/shipments?number=${encodeURIComponent(trackingNumber.trim())}`)
-      const result = await response.json()
+      response = await fetch(`/api/shipments?number=${encodeURIComponent(trackingNumber.trim())}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
 
+      // Check if response is ok before parsing JSON
       if (!response.ok) {
-        console.error('Error fetching shipment:', result)
+        let errorData = {}
+        try {
+          errorData = await response.json()
+        } catch (parseError) {
+          // If JSON parsing fails, use status text
+          errorData = {
+            error: response.statusText || 'Failed to fetch shipment',
+            status: response.status,
+          }
+        }
+
+        console.error('❌ API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData.error,
+          details: errorData,
+          trackingNumber: trackingNumber.trim(),
+        })
+
         if (response.status === 404) {
-          toast.error('Shipment not found. Please check your tracking number.')
+          toast.error(`Shipment not found. No shipment with tracking number "${trackingNumber.trim()}" exists.`)
+        } else if (response.status === 500) {
+          toast.error(errorData.error || 'Server error. Please try again later.')
         } else {
-          toast.error(result.error || 'Failed to load shipment')
+          toast.error(errorData.error || `Failed to load shipment (${response.status})`)
         }
         setShipment(null)
-      } else {
-        setShipment(result)
-        // Fetch status history separately if not included
-        if (result.id && (!result.shipment_status_history || result.shipment_status_history.length === 0)) {
-          fetchStatusHistory(result.id)
-        } else if (result.shipment_status_history) {
+        setLoading(false)
+        return
+      }
+
+      // Parse successful response
+      let result = null
+      try {
+        result = await response.json()
+      } catch (parseError) {
+        console.error('❌ JSON Parse Error:', parseError)
+        toast.error('Invalid response from server. Please try again.')
+        setShipment(null)
+        setLoading(false)
+        return
+      }
+
+      // Validate result
+      if (!result || typeof result !== 'object') {
+        console.error('❌ Invalid response data:', result)
+        toast.error('Invalid shipment data received. Please try again.')
+        setShipment(null)
+        setLoading(false)
+        return
+      }
+
+      // Success - set shipment data
+      console.log('✅ Shipment fetched successfully:', {
+        trackingNumber: result.tracking_number,
+        status: result.status,
+        hasHistory: !!result.shipment_status_history?.length,
+      })
+
+      setShipment(result)
+      
+      // Fetch status history separately if not included
+      if (result.id) {
+        if (result.shipment_status_history && result.shipment_status_history.length > 0) {
           setStatusHistory(result.shipment_status_history)
+        } else {
+          fetchStatusHistory(result.id)
         }
       }
+
     } catch (error) {
-      console.error('Error fetching shipment:', error)
-      toast.error('Failed to load shipment. Please try again.')
+      // Network errors, timeouts, etc.
+      console.error('❌ Network/Fetch Error:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        trackingNumber: trackingNumber.trim(),
+      })
+
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        toast.error('Network error. Please check your internet connection and try again.')
+      } else if (error.name === 'AbortError') {
+        toast.error('Request timeout. Please try again.')
+      } else {
+        toast.error(`Failed to load shipment: ${error.message || 'Unknown error'}`)
+      }
       setShipment(null)
     } finally {
       setLoading(false)

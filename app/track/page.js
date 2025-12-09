@@ -2,6 +2,7 @@
 
 import { Suspense, useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import Header from '@/components/layout/Header'
 import BottomNav from '@/components/layout/BottomNav'
 import { useRouter } from 'next/navigation'
@@ -9,6 +10,19 @@ import { CheckCircle2, Circle, Package } from '@/components/icons'
 import { supabase } from '@/lib/supabase'
 import { toast } from '@/lib/utils/toast'
 import { useAuth } from '@/contexts/AuthContext'
+
+// Dynamically import map component to avoid SSR issues
+const ShipmentMap = dynamic(() => import('@/components/ui/ShipmentMap'), { 
+  ssr: false,
+  loading: () => (
+    <div className="bg-gray-200 rounded-lg h-48 mb-4 flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-2"></div>
+        <p className="text-xs text-gray-600">Loading map...</p>
+      </div>
+    </div>
+  )
+})
 
 function TrackContent() {
   const router = useRouter()
@@ -365,26 +379,14 @@ function TrackContent() {
       <Header title="Track your pack" showBack={true} />
       
       <main className="px-4 py-6 max-w-md mx-auto">
-        {/* Map placeholder */}
-        <div className="bg-gray-200 rounded-lg h-48 mb-4 flex items-center justify-center relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-gray-300 to-gray-400"></div>
-          <div className="relative z-10 text-center">
-            <div className="w-16 h-16 bg-red-500 rounded-full mx-auto mb-2 flex items-center justify-center">
-              <Package size={24} className="text-white" />
-            </div>
-            <p className="text-xs text-gray-600">Map View</p>
-          </div>
-          {/* Real location data */}
-          {shipment.pickup_location && (
-            <div className="absolute top-2 left-2 text-xs text-gray-500 bg-white/70 px-2 py-1 rounded">
-              {shipment.pickup_location.split(',')[0]}
-            </div>
-          )}
-          {shipment.drop_off_location && (
-            <div className="absolute bottom-2 right-2 text-xs text-gray-500 bg-white/70 px-2 py-1 rounded">
-              {shipment.drop_off_location.split(',')[0]}
-            </div>
-          )}
+        {/* Real Map View */}
+        <div className="mb-4">
+          <ShipmentMap
+            pickupLocation={shipment.pickup_location}
+            dropOffLocation={shipment.drop_off_location}
+            height="h-48"
+            showRoute={true}
+          />
         </div>
 
         <div className="mb-4">

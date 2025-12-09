@@ -1,7 +1,21 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { Phone, MessageSquare, MapPin, Camera, Truck, X, Maximize2, ZoomIn, ZoomOut } from '@/components/icons'
+
+// Dynamically import map component to avoid SSR issues
+const ShipmentMap = dynamic(() => import('@/components/ui/ShipmentMap'), { 
+  ssr: false,
+  loading: () => (
+    <div className="bg-gray-100 rounded-lg h-64 flex items-center justify-center">
+      <div className="text-center text-gray-400">
+        <MapPin size={48} className="mx-auto mb-2" />
+        <p className="font-medium">Loading map...</p>
+      </div>
+    </div>
+  )
+})
 
 export default function ShipmentDetailsPanel({ shipment, onClose }) {
   const [activeTab, setActiveTab] = useState('shipping')
@@ -135,33 +149,14 @@ export default function ShipmentDetailsPanel({ shipment, onClose }) {
               </button>
             </div>
 
-            {/* Map Placeholder */}
-            <div className="bg-gray-100 rounded-lg h-64 flex items-center justify-center relative overflow-hidden">
-              {/* Map controls */}
-              <div className="absolute top-4 right-4 flex flex-col gap-2 z-10">
-                <button className="bg-white hover:bg-gray-50 p-2 rounded shadow-md transition">
-                  <ZoomIn size={16} className="text-gray-600" />
-                </button>
-                <button className="bg-white hover:bg-gray-50 p-2 rounded shadow-md transition">
-                  <ZoomOut size={16} className="text-gray-600" />
-                </button>
-                <button className="bg-white hover:bg-gray-50 p-2 rounded shadow-md transition">
-                  <Maximize2 size={16} className="text-gray-600" />
-                </button>
-              </div>
-              
-              {/* Map content */}
-              <div className="text-center text-gray-400">
-                <MapPin size={48} className="mx-auto mb-2" />
-                <p className="font-medium">Route Map</p>
-                <p className="text-xs mt-1">Zoom controls and full-screen toggle</p>
-                {/* Mock route line */}
-                <svg width="200" height="100" className="absolute inset-0 opacity-20">
-                  <path d="M 20 50 Q 50 30, 80 50 T 140 50 T 180 50" stroke="currentColor" strokeWidth="2" fill="none" />
-                  <circle cx="20" cy="50" r="4" fill="currentColor" />
-                  <circle cx="180" cy="50" r="4" fill="currentColor" />
-                </svg>
-              </div>
+            {/* Real Map View */}
+            <div className="relative">
+              <ShipmentMap
+                pickupLocation={shipment.pickup_location}
+                dropOffLocation={shipment.drop_off_location}
+                height="h-64"
+                showRoute={true}
+              />
             </div>
 
             {/* Cargo Photo Reports */}

@@ -92,3 +92,16 @@ body {
 .duration-700 {
   transition-duration: 700ms;
 }
+
+/* Fix Leaflet icon paths */
+.leaflet-container {
+  font-family: inherit;
+}
+
+.leaflet-default-icon-path {
+  background-image: url('https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png');
+}
+
+.leaflet-default-icon-shadow-path {
+  background-image: url('https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png');
+}

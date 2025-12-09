@@ -1,11 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function HomePage() {
-  const router = useRouter()
   const { user, loading: authLoading } = useAuth()
   const hasRedirected = useRef(false)
   const [isRedirecting, setIsRedirecting] = useState(false)
@@ -14,24 +12,27 @@ export default function HomePage() {
     // Prevent multiple redirects
     if (hasRedirected.current) return
     
-    // If we already have user info, redirect immediately
-    if (user !== null && !authLoading) {
-      setIsRedirecting(true)
-      hasRedirected.current = true
-      router.replace('/dashboard')
+    // Wait for auth to finish loading
+    if (authLoading) return
+    
+    // Set redirecting state
+    setIsRedirecting(true)
+    hasRedirected.current = true
+    
+    // If we have a user, redirect to dashboard
+    if (user !== null) {
+      // Use window.location for hard redirect to prevent loops
+      window.location.replace('/dashboard')
       return
     }
     
-    // If auth is done loading and no user, redirect to login
-    if (!authLoading && user === null) {
-      setIsRedirecting(true)
-      hasRedirected.current = true
-      router.replace('/auth/login')
+    // If no user, redirect to login
+    if (user === null) {
+      // Use window.location for hard redirect to prevent loops
+      window.location.replace('/auth/login')
       return
     }
-    
-    // While loading, show loading state (already handled in render)
-  }, [user, authLoading, router])
+  }, [user, authLoading])
 
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center">

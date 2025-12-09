@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Package, Phone, MessageSquare, ChevronRight, QrCode } from '@/components/icons'
 import BottomNav from '@/components/layout/BottomNav'
@@ -17,16 +17,23 @@ export default function UserDashboard() {
   const [recentDeliveries, setRecentDeliveries] = useState([])
   const [availableCities, setAvailableCities] = useState([])
   const [loading, setLoading] = useState(true)
+  const hasRedirected = useRef(false)
 
   useEffect(() => {
-    if (!authLoading) {
-      if (!user) {
-        router.push('/auth/login')
-        return
+    if (authLoading) return // Wait for auth to load
+    
+    if (!user) {
+      if (!hasRedirected.current) {
+        hasRedirected.current = true
+        // Use window.location for hard redirect to prevent loops
+        window.location.replace('/auth/login')
       }
-      fetchDashboardData()
+      return
     }
-  }, [user, authLoading, router])
+    
+    // User is authenticated, fetch data
+    fetchDashboardData()
+  }, [user, authLoading]) // Removed router from dependencies
 
   // Set up real-time subscription for status updates
   useEffect(() => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Menu, X, Package, Users, DollarSign, Truck, TrendingUp, Clock, CheckCircle2, AlertCircle, Plus, Search, Phone, Send, User, Trash2, Mail } from '@/components/icons'
 import Sidebar from '@/components/layout/Sidebar'
@@ -15,6 +15,8 @@ export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('dashboard')
   const [loading, setLoading] = useState(true)
+  const hasCheckedAccess = useRef(false)
+  const isRedirecting = useRef(false)
   
   // Dashboard Stats
   const [stats, setStats] = useState({
@@ -59,29 +61,41 @@ export default function AdminDashboard() {
   const [selectedDriverId, setSelectedDriverId] = useState('')
 
   useEffect(() => {
+    // Prevent multiple checks
+    if (hasCheckedAccess.current || isRedirecting.current) return
+    
     // Give AuthContext time to initialize
     if (authLoading) {
       return // Still loading, wait
     }
     
     if (!user) {
-      console.log('No user found, redirecting to login')
-      router.replace('/admin/login')
+      if (!isRedirecting.current) {
+        isRedirecting.current = true
+        console.log('No user found, redirecting to login')
+        router.replace('/admin/login')
+      }
       return
     }
     
     console.log('User found, checking admin access...', { userId: user.id, email: user.email })
+    hasCheckedAccess.current = true
     checkAdminAccess()
-  }, [user, authLoading, router])
+  }, [user, authLoading]) // Removed router from dependencies
 
   const checkAdminAccess = async () => {
     if (!supabase || !user) {
       console.log('checkAdminAccess: Missing supabase or user', { hasSupabase: !!supabase, hasUser: !!user })
+      if (!user && !isRedirecting.current) {
+        isRedirecting.current = true
+        router.replace('/admin/login')
+      }
       return
     }
 
     try {
       console.log('Checking admin access for user:', user.id, user.email)
+      setLoading(true) // Ensure loading state is set
       
       // First check if profile exists and get role
       const { data: userProfile, error } = await supabase
@@ -167,22 +181,35 @@ export default function AdminDashboard() {
       }
 
       console.log('✅ Access granted, loading dashboard data...', { role: userProfile.role })
-      // Set loading to false FIRST so dashboard can render
+      
+      // Set loading to false FIRST so dashboard can render immediately
       setLoading(false)
-      // Then fetch data (don't await - let it load in background)
-      fetchDashboardData().catch(err => console.error('Error fetching dashboard data:', err))
-      fetchUsers().catch(err => console.error('Error fetching users:', err))
-      fetchShipments().catch(err => console.error('Error fetching shipments:', err))
-      fetchDrivers().catch(err => console.error('Error fetching drivers:', err))
-      console.log('✅ Dashboard initialized, data fetching started')
+      
+      // Then fetch data in background (don't block rendering)
+      Promise.all([
+        fetchDashboardData(),
+        fetchUsers(),
+        fetchShipments(),
+        fetchDrivers(),
+      ]).then(() => {
+        console.log('✅ All data fetched successfully')
+      }).catch((err) => {
+        console.error('Error fetching dashboard data:', err)
+        // Dashboard already rendered, just show empty data
+      })
+      
+      console.log('✅ Dashboard ready to display')
     } catch (error) {
       console.error('Error checking access:', error)
       console.error('Error details:', {
         message: error.message,
         stack: error.stack,
       })
-      toast.error(`Failed to verify access: ${error.message}`)
-      router.replace('/admin/login')
+      if (!isRedirecting.current) {
+        isRedirecting.current = true
+        toast.error(`Failed to verify access: ${error.message}`)
+        router.replace('/admin/login')
+      }
     }
   }
 

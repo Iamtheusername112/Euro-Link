@@ -36,26 +36,20 @@ export default function UserDashboard() {
       setLoading(false) // No user, stop loading
       if (!hasRedirected.current) {
         hasRedirected.current = true
-        // Use window.location for hard redirect to prevent loops
-        window.location.replace('/auth/login')
+        // Use router for faster client-side navigation
+        router.replace('/auth/login')
       }
       return
     }
     
-    // User is authenticated, fetch data
+    // User is authenticated - show dashboard immediately, fetch data in background
     if (supabase && user) {
-      // Set a safety timeout to prevent infinite loading (10 seconds)
-      loadingTimeoutRef.current = setTimeout(() => {
-        console.warn('⚠️ Dashboard loading timeout - forcing display after 10 seconds')
-        setLoading(false)
-      }, 10000)
-
-      fetchDashboardData().finally(() => {
-        // Clear timeout when data fetch completes
-        if (loadingTimeoutRef.current) {
-          clearTimeout(loadingTimeoutRef.current)
-          loadingTimeoutRef.current = null
-        }
+      // Show dashboard immediately (don't wait for data)
+      setLoading(false)
+      
+      // Fetch data in background (non-blocking)
+      fetchDashboardData(false).catch(err => {
+        console.error('Background data fetch error:', err)
       })
     } else {
       setLoading(false) // If supabase or user is missing, stop loading
@@ -67,7 +61,7 @@ export default function UserDashboard() {
         clearTimeout(loadingTimeoutRef.current)
       }
     }
-  }, [user, authLoading]) // Removed router from dependencies
+  }, [user, authLoading, router])
 
   // Set up real-time subscription for status updates
   useEffect(() => {
@@ -229,20 +223,8 @@ export default function UserDashboard() {
     )
   }
 
-  // Show loading only if we have a user and are fetching data
-  if (loading && user) {
-    return (
-      <div className="min-h-screen bg-gray-900 pb-20">
-        <div className="flex items-center justify-center h-screen">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
-            <p className="text-white">Loading dashboard...</p>
-            <p className="text-gray-400 text-sm mt-2">This may take a moment</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // Don't block UI - show dashboard immediately even if data is loading
+  // Data will load in background and update when ready
 
   const userName = profile?.full_name || user?.email?.split('@')[0] || 'User'
 
@@ -289,7 +271,16 @@ export default function UserDashboard() {
         </div>
 
         {/* Current Order Section */}
-        {currentOrder ? (
+        {loading && !currentOrder ? (
+          <div className="bg-gray-800 rounded-xl p-4 mb-4">
+            <div className="flex items-center justify-center py-8">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-2"></div>
+                <p className="text-gray-400 text-sm">Loading orders...</p>
+              </div>
+            </div>
+          </div>
+        ) : currentOrder ? (
           <div className="bg-gray-800 rounded-xl p-4 mb-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-white font-bold text-lg">Current Order</h3>

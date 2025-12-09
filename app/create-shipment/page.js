@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { MapPin, Package, User, Phone, Mail, ChevronRight, CheckCircle2, AlertCircle, Plus, Trash2, Edit2 } from '@/components/icons'
+import { MapPin, Package, User, Phone, Mail, ChevronRight, CheckCircle2, AlertCircle, Plus, Trash2, Edit2, DollarSign } from '@/components/icons'
 import Header from '@/components/layout/Header'
 import BottomNav from '@/components/layout/BottomNav'
 import { toast } from '@/lib/utils/toast'
@@ -39,6 +39,10 @@ export default function CreateShipmentPage() {
     packageDescription: '',
     packageValue: '',
     deliveryType: 'Normal',
+    
+    // Cost
+    manualCost: '',
+    useManualCost: false,
     
     // Special instructions
     specialInstructions: '',
@@ -86,6 +90,18 @@ export default function CreateShipmentPage() {
     } else if (stepNumber === 3) {
       if (!formData.packageWeight) newErrors.packageWeight = 'Weight is required'
       if (!formData.packageDescription.trim()) newErrors.packageDescription = 'Description is required'
+      
+      // Validate cost
+      if (formData.useManualCost) {
+        if (!formData.manualCost || parseFloat(formData.manualCost) <= 0) {
+          newErrors.manualCost = 'Please enter a valid shipping cost'
+        }
+      } else {
+        // If not using manual cost, ensure we have calculated cost or can calculate it
+        if (!estimatedCost && (!formData.pickupAddress || !formData.deliveryAddress)) {
+          newErrors.cost = 'Please calculate cost or enter cost manually'
+        }
+      }
     }
     
     setErrors(newErrors)
@@ -149,40 +165,57 @@ export default function CreateShipmentPage() {
         return
       }
 
-      // Calculate cost for this shipment
-      let cost = estimatedCost || 0
+      // Determine cost - use manual cost if provided, otherwise use calculated cost
+      let cost = 0
       
-      try {
-        const costResponse = await fetch('/api/calculate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            pickupLocation: `${formData.pickupAddress}, ${formData.pickupCity}`,
-            dropOff: `${formData.deliveryAddress}, ${formData.deliveryCity}`,
-            packageSize: formData.packageSize,
-            deliveryType: formData.deliveryType,
-          }),
-        })
-        
-        if (!costResponse.ok) {
-          throw new Error(`Cost calculation failed: ${costResponse.statusText}`)
-        }
-        
-        const costData = await costResponse.json()
-        
-        if (!costData || typeof costData.cost !== 'number') {
-          throw new Error('Invalid cost data received')
-        }
-        
-        cost = costData.cost
-      } catch (costError) {
-        console.error('Error calculating cost:', costError)
-        if (cost === 0) {
-          toast.error('Failed to calculate cost. Please try again.')
+      if (formData.useManualCost && formData.manualCost) {
+        // Use manual cost
+        cost = parseFloat(formData.manualCost)
+        if (isNaN(cost) || cost < 0) {
+          toast.error('Please enter a valid cost amount')
           return
         }
-        // Use estimated cost if available, otherwise show warning
-        toast.warning('Using estimated cost. Cost calculation failed.')
+      } else {
+        // Use calculated cost
+        cost = estimatedCost || 0
+        
+        // If no estimated cost, try to calculate it
+        if (cost === 0) {
+          try {
+            const costResponse = await fetch('/api/calculate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                pickupLocation: `${formData.pickupAddress}, ${formData.pickupCity}`,
+                dropOff: `${formData.deliveryAddress}, ${formData.deliveryCity}`,
+                packageSize: formData.packageSize,
+                deliveryType: formData.deliveryType,
+              }),
+            })
+            
+            if (!costResponse.ok) {
+              throw new Error(`Cost calculation failed: ${costResponse.statusText}`)
+            }
+            
+            const costData = await costResponse.json()
+            
+            if (!costData || typeof costData.cost !== 'number') {
+              throw new Error('Invalid cost data received')
+            }
+            
+            cost = costData.cost
+            setEstimatedCost(cost) // Update estimated cost for display
+          } catch (costError) {
+            console.error('Error calculating cost:', costError)
+            toast.error('Failed to calculate cost. Please enter cost manually or try again.')
+            return
+          }
+        }
+      }
+      
+      if (cost === 0 || isNaN(cost)) {
+        toast.error('Please enter a valid shipping cost')
+        return
       }
 
       const shipmentData = {
@@ -251,6 +284,8 @@ export default function CreateShipmentPage() {
       packageDescription: '',
       packageValue: '',
       deliveryType: 'Normal',
+      manualCost: '',
+      useManualCost: false,
       specialInstructions: '',
     })
     setEstimatedCost(null)
@@ -279,6 +314,8 @@ export default function CreateShipmentPage() {
       packageDescription: shipment.packageDescription,
       packageValue: shipment.packageValue,
       deliveryType: shipment.deliveryType,
+      manualCost: shipment.cost?.toString() || '',
+      useManualCost: !!shipment.cost,
       specialInstructions: shipment.specialInstructions,
     })
     setEditingIndex(index)
@@ -938,14 +975,84 @@ export default function CreateShipmentPage() {
               />
             </div>
 
-            {estimatedCost && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Estimated Cost:</span>
-                  <span className="text-2xl font-bold text-blue-600">€{estimatedCost.toFixed(2)}</span>
-                </div>
+            {/* Cost Section */}
+            <div className="border-t border-gray-200 pt-4">
+              <div className="flex items-center justify-between mb-4">
+                <label className="block text-sm font-medium text-gray-700">
+                  Shipping Cost (EUR)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, useManualCost: !formData.useManualCost })}
+                  className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  {formData.useManualCost ? 'Use Calculated Cost' : 'Enter Manually'}
+                </button>
               </div>
-            )}
+
+              {formData.useManualCost ? (
+                <div>
+                  <div className="relative">
+                    <DollarSign size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualCost}
+                      onChange={(e) => setFormData({ ...formData, manualCost: e.target.value })}
+                      className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                        errors.manualCost ? 'border-red-500' : 'border-gray-200'
+                      }`}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  {errors.manualCost && (
+                    <p className="mt-1 text-sm text-red-500 flex items-center gap-1">
+                      <AlertCircle size={14} />
+                      {errors.manualCost}
+                    </p>
+                  )}
+                  {!errors.manualCost && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      Enter the shipping cost for this shipment
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  {estimatedCost ? (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-gray-700">Calculated Cost:</span>
+                        <span className="text-2xl font-bold text-blue-600">€{estimatedCost.toFixed(2)}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Based on distance, package size, and delivery type
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+                      <p className="text-sm text-gray-600">
+                        Cost will be calculated automatically
+                      </p>
+                      <button
+                        type="button"
+                        onClick={calculateCost}
+                        className="mt-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Calculate Now
+                      </button>
+                    </div>
+                  )}
+                  {errors.cost && (
+                    <p className="mt-2 text-sm text-red-500 flex items-center gap-1">
+                      <AlertCircle size={14} />
+                      {errors.cost}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="flex gap-3">
               <button

@@ -26,7 +26,7 @@ export function AuthProvider({ children }) {
       return
     }
 
-    // Get initial session
+    // Get initial session - don't wait for profile
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
         console.error('Error getting session:', error)
@@ -34,10 +34,14 @@ export function AuthProvider({ children }) {
         return
       }
       setUser(session?.user ?? null)
+      setLoading(false) // Set loading to false immediately after getting user
+      
+      // Fetch profile in background (non-blocking)
       if (session?.user) {
-        fetchProfile(session.user.id)
+        fetchProfile(session.user.id).catch(err => {
+          console.error('Background profile fetch error:', err)
+        })
       }
-      setLoading(false)
     }).catch((error) => {
       console.error('Error in getSession:', error)
       setLoading(false)
@@ -49,7 +53,10 @@ export function AuthProvider({ children }) {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
-        await fetchProfile(session.user.id)
+        // Fetch profile in background (non-blocking)
+        fetchProfile(session.user.id).catch(err => {
+          console.error('Background profile fetch error:', err)
+        })
       } else {
         setProfile(null)
       }

@@ -5,15 +5,17 @@ import { createClient } from '@supabase/supabase-js'
 /**
  * Test Email Endpoint - Uses Real Shipment Data
  * POST /api/email/test
- * Body: { to: "email@example.com" }
+ * Body: { to: "email@example.com" } (optional - if not provided, uses recipient email from shipment)
  * 
  * This endpoint fetches a real shipment from the database and sends
  * an email with the actual tracking number and shipment details.
  */
 export async function POST(request) {
   try {
-    // No need for 'to' parameter - we'll use recipient email from shipment
-    console.log('🧪 Testing email sending with real shipment data')
+    const body = await request.json()
+    const { to } = body // Admin can specify any email address
+    
+    console.log('🧪 Testing email sending with real shipment data', { to })
 
     // Get Supabase service role client to fetch real shipment
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -34,7 +36,7 @@ export async function POST(request) {
     })
 
     // Fetch a real shipment from the database with recipient info
-    // Get the most recent shipment that has a tracking number and recipient email
+    // Get the most recent shipment that has a tracking number
     const { data: shipments, error: shipmentError } = await adminSupabase
       .from('shipments')
       .select('tracking_number, pickup_location, drop_off_location, cost, status, recipient_info, user_id')
@@ -48,7 +50,7 @@ export async function POST(request) {
         { 
           success: false,
           error: 'No shipments found in database',
-          message: 'Please create a shipment first. The test email will be sent to the recipient email address provided when creating the shipment.',
+          message: 'Please create a shipment first to use real shipment data for the test email.',
         },
         { status: 404 }
       )
@@ -58,59 +60,45 @@ export async function POST(request) {
     const shipment = shipments[0]
     const trackingNumber = shipment.tracking_number
 
-    // Get recipient email from recipient_info
-    let recipientEmail = null
+    // Determine recipient email: use provided 'to' parameter, or fallback to shipment recipient email
+    let recipientEmail = to
     
-    if (shipment.recipient_info && typeof shipment.recipient_info === 'object') {
-      recipientEmail = shipment.recipient_info.email
-    } else if (typeof shipment.recipient_info === 'string') {
-      // Handle case where recipient_info might be stored as JSON string
-      try {
-        const recipientInfo = JSON.parse(shipment.recipient_info)
-        recipientEmail = recipientInfo.email
-      } catch (e) {
-        console.error('Error parsing recipient_info:', e)
+    // If no email provided, try to get it from shipment
+    if (!recipientEmail) {
+      if (shipment.recipient_info && typeof shipment.recipient_info === 'object') {
+        recipientEmail = shipment.recipient_info.email
+      } else if (typeof shipment.recipient_info === 'string') {
+        try {
+          const recipientInfo = JSON.parse(shipment.recipient_info)
+          recipientEmail = recipientInfo.email
+        } catch (e) {
+          console.error('Error parsing recipient_info:', e)
+        }
       }
     }
 
-    if (!recipientEmail) {
-      console.error('No recipient email found in shipment:', shipment.id)
-      return NextResponse.json(
-        { 
-          success: false,
-          error: 'Recipient email not found',
-          message: 'This shipment does not have a recipient email address. Please create a shipment with recipient email information.',
-          shipmentData: {
-            trackingNumber: trackingNumber,
-            shipmentId: shipment.id,
-          }
-        },
-        { status: 400 }
-      )
-    }
-
-    // Validate recipient email format
+    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(recipientEmail)) {
+    if (!recipientEmail || !emailRegex.test(recipientEmail)) {
       return NextResponse.json(
         { 
           success: false,
-          error: 'Invalid recipient email format',
-          recipientEmail: recipientEmail,
+          error: 'Invalid or missing email address',
+          message: 'Please provide a valid email address in the "to" field, or ensure the shipment has a valid recipient email.',
         },
         { status: 400 }
       )
     }
 
-    console.log('✅ Found real shipment:', {
+    console.log('✅ Sending test email:', {
+      to: recipientEmail,
       trackingNumber,
       status: shipment.status,
       pickupLocation: shipment.pickup_location,
       deliveryLocation: shipment.drop_off_location,
-      recipientEmail: recipientEmail,
     })
 
-    // Send email to the recipient email address with real shipment data
+    // Send email to the specified email address with real shipment data
     const emailResult = await sendStatusUpdateEmail({
       to: recipientEmail,
       trackingNumber: trackingNumber,
@@ -147,7 +135,7 @@ export async function POST(request) {
 
     return NextResponse.json({
       success: true,
-      message: `Test email sent successfully to recipient: ${recipientEmail}`,
+      message: `Test email sent successfully to: ${recipientEmail}`,
       emailId: emailResult.data?.id,
       shipmentData: {
         trackingNumber: trackingNumber,
@@ -163,7 +151,7 @@ export async function POST(request) {
         '3. Verify the email content shows the real tracking number and shipment details',
         '4. Click the "Track Your Shipment" button to test the link',
         '5. Verify the tracking number matches what you see in the admin dashboard',
-        `6. The email was sent to the recipient email provided when creating this shipment`,
+        `6. The email was sent to: ${recipientEmail}`,
       ],
     })
   } catch (error) {

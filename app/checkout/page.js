@@ -12,8 +12,9 @@ function CheckoutContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const shipmentId = searchParams.get('id')
+  const shipmentIds = searchParams.get('ids') // Multiple shipment IDs
   
-  const [shipment, setShipment] = useState(null)
+  const [shipments, setShipments] = useState([])
   const [paymentMethod, setPaymentMethod] = useState('card')
   const [cardDetails, setCardDetails] = useState({
     number: '',
@@ -24,12 +25,14 @@ function CheckoutContent() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (shipmentId) {
-      fetchShipment()
+    if (shipmentIds) {
+      fetchMultipleShipments()
+    } else if (shipmentId) {
+      fetchSingleShipment()
     }
-  }, [shipmentId])
+  }, [shipmentId, shipmentIds])
 
-  const fetchShipment = async () => {
+  const fetchSingleShipment = async () => {
     if (!supabase || !shipmentId) {
       toast.error('Database not configured or missing shipment ID')
       return
@@ -47,52 +50,93 @@ function CheckoutContent() {
         toast.error('Failed to load shipment details')
         return
       }
-      setShipment(data)
+      setShipments([data])
     } catch (error) {
       console.error('Error fetching shipment:', error)
       toast.error('Failed to load shipment details')
     }
   }
 
+  const fetchMultipleShipments = async () => {
+    if (!supabase || !shipmentIds) {
+      toast.error('Database not configured or missing shipment IDs')
+      return
+    }
+    
+    try {
+      const ids = shipmentIds.split(',').filter(id => id.trim())
+      const { data, error } = await supabase
+        .from('shipments')
+        .select('*')
+        .in('id', ids)
+
+      if (error) {
+        console.error('Error fetching shipments:', error)
+        toast.error('Failed to load shipment details')
+        return
+      }
+      setShipments(data || [])
+    } catch (error) {
+      console.error('Error fetching shipments:', error)
+      toast.error('Failed to load shipment details')
+    }
+  }
+
   const handlePayment = async () => {
+    if (shipments.length === 0) {
+      toast.error('No shipments to pay for')
+      return
+    }
+
     setLoading(true)
     try {
       // In a real app, integrate with Stripe/PayPal/etc.
       // For now, simulate payment processing
       await new Promise(resolve => setTimeout(resolve, 2000))
 
-      // Update shipment status to paid
-      const { error } = await supabase
+      const shipmentIdsToUpdate = shipments.map(s => s.id)
+      const totalAmount = shipments.reduce((sum, s) => sum + (s.cost || 0), 0)
+
+      // Update all shipments status to paid
+      const { error: updateError } = await supabase
         .from('shipments')
         .update({ 
           status: 'Paid',
           payment_status: 'completed',
           payment_method: paymentMethod,
         })
-        .eq('id', shipmentId)
+        .in('id', shipmentIdsToUpdate)
 
-      if (error) throw error
+      if (updateError) throw updateError
 
-      // Create payment record
-      await supabase
+      // Create payment records for each shipment
+      const paymentRecords = shipments.map(shipment => ({
+        shipment_id: shipment.id,
+        amount: shipment.cost,
+        payment_method: paymentMethod,
+        status: 'completed',
+      }))
+
+      const { error: paymentError } = await supabase
         .from('payments')
-        .insert({
-          shipment_id: shipmentId,
-          amount: shipment.cost,
-          payment_method: paymentMethod,
-          status: 'completed',
-        })
+        .insert(paymentRecords)
 
-      toast.success('Payment successful! Your shipment is being processed.')
-      router.push(`/receipt?id=${shipmentId}`)
+      if (paymentError) throw paymentError
+
+      toast.success(`Payment successful! ${shipments.length} shipment(s) being processed.`)
+      
+      // Redirect to receipt with all shipment IDs
+      const idsParam = shipmentIdsToUpdate.join(',')
+      router.push(`/receipt?ids=${idsParam}`)
     } catch (error) {
+      console.error('Payment error:', error)
       toast.error('Payment failed. Please try again.')
     } finally {
       setLoading(false)
     }
   }
 
-  if (!shipment) {
+  if (shipments.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 pb-20">
         <Header title="Checkout" showBack={true} />
@@ -110,25 +154,40 @@ function CheckoutContent() {
       <main className="px-4 py-6 max-w-md mx-auto">
         {/* Order Summary */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-4">
-          <h3 className="text-lg font-semibold mb-4">Order Summary</h3>
+          <h3 className="text-lg font-semibold mb-4">
+            Order Summary {shipments.length > 1 && `(${shipments.length} shipments)`}
+          </h3>
           
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Tracking Number</span>
-              <span className="font-medium">{shipment.tracking_number}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Package Size</span>
-              <span className="font-medium">{shipment.package_size}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Delivery Type</span>
-              <span className="font-medium">{shipment.delivery_type}</span>
-            </div>
+          <div className="space-y-4">
+            {shipments.map((shipment, index) => (
+              <div key={shipment.id} className={index > 0 ? 'border-t pt-3' : ''}>
+                {shipments.length > 1 && (
+                  <p className="text-sm font-medium text-gray-700 mb-2">Shipment #{index + 1}</p>
+                )}
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Tracking Number</span>
+                    <span className="font-medium">{shipment.tracking_number}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Package Size</span>
+                    <span className="font-medium">{shipment.package_size}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Delivery Type</span>
+                    <span className="font-medium">{shipment.delivery_type}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Cost</span>
+                    <span className="font-medium">€{shipment.cost?.toFixed(2) || '0.00'}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
             <div className="border-t pt-3 flex justify-between">
               <span className="text-lg font-semibold">Total</span>
               <span className="text-lg font-bold text-red-500">
-                €{shipment.cost?.toFixed(2) || '0.00'}
+                €{shipments.reduce((sum, s) => sum + (s.cost || 0), 0).toFixed(2)}
               </span>
             </div>
           </div>
@@ -236,7 +295,7 @@ function CheckoutContent() {
           disabled={loading || (paymentMethod === 'card' && !cardDetails.number)}
           className="w-full bg-red-500 hover:bg-red-600 disabled:bg-gray-300 text-white py-4 rounded-lg font-medium text-lg transition"
         >
-          {loading ? 'Processing...' : `Pay €${shipment.cost?.toFixed(2) || '0.00'}`}
+          {loading ? 'Processing...' : `Pay €${shipments.reduce((sum, s) => sum + (s.cost || 0), 0).toFixed(2)}`}
         </button>
 
         <p className="text-xs text-gray-500 text-center mt-4">

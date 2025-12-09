@@ -13,18 +13,21 @@ function ReceiptContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const shipmentId = searchParams.get('id')
+  const shipmentIds = searchParams.get('ids') // Multiple shipment IDs
   const { user } = useAuth()
   
-  const [shipment, setShipment] = useState(null)
+  const [shipments, setShipments] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (shipmentId) {
-      fetchShipment()
+    if (shipmentIds) {
+      fetchMultipleShipments()
+    } else if (shipmentId) {
+      fetchSingleShipment()
     }
-  }, [shipmentId])
+  }, [shipmentId, shipmentIds])
 
-  const fetchShipment = async () => {
+  const fetchSingleShipment = async () => {
     if (!supabase || !shipmentId) {
       toast.error('Missing shipment information')
       setLoading(false)
@@ -52,9 +55,47 @@ function ReceiptContent() {
         return
       }
       
-      setShipment(data)
+      setShipments([data])
     } catch (error) {
       console.error('Error fetching shipment:', error)
+      toast.error('Failed to load receipt')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchMultipleShipments = async () => {
+    if (!supabase || !shipmentIds) {
+      toast.error('Missing shipment information')
+      setLoading(false)
+      return
+    }
+    
+    try {
+      const ids = shipmentIds.split(',').filter(id => id.trim())
+      const { data, error } = await supabase
+        .from('shipments')
+        .select('*')
+        .in('id', ids)
+
+      if (error) {
+        console.error('Error fetching shipments:', error)
+        toast.error('Failed to load receipt')
+        setLoading(false)
+        return
+      }
+      
+      // Verify user owns all shipments
+      const unauthorized = data?.some(s => s.user_id !== user?.id)
+      if (unauthorized) {
+        toast.error('Unauthorized access')
+        router.push('/')
+        return
+      }
+      
+      setShipments(data || [])
+    } catch (error) {
+      console.error('Error fetching shipments:', error)
       toast.error('Failed to load receipt')
     } finally {
       setLoading(false)
@@ -67,11 +108,12 @@ function ReceiptContent() {
 
   const handleDownload = () => {
     // Create a printable version and trigger download
+    const trackingNumbers = shipments.map(s => s.tracking_number).join(', ')
     const printWindow = window.open('', '_blank')
     printWindow.document.write(`
       <html>
         <head>
-          <title>Receipt - ${shipment?.tracking_number}</title>
+          <title>Receipt - ${trackingNumbers}</title>
           <style>
             ${document.querySelector('#receipt-styles')?.innerHTML || ''}
             body { font-family: Arial, sans-serif; padding: 20px; }
@@ -98,7 +140,7 @@ function ReceiptContent() {
     )
   }
 
-  if (!shipment) {
+  if (shipments.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 pb-20">
         <Header title="Receipt" showBack={true} />
@@ -109,9 +151,7 @@ function ReceiptContent() {
     )
   }
 
-  const senderInfo = shipment.sender_info || {}
-  const recipientInfo = shipment.recipient_info || {}
-  const packageInfo = shipment.package_info || {}
+  const totalCost = shipments.reduce((sum, s) => sum + (s.cost || 0), 0)
 
   return (
     <>
@@ -148,11 +188,11 @@ function ReceiptContent() {
               Download PDF
             </button>
             <button
-              onClick={() => router.push(`/track?number=${shipment.tracking_number}`)}
+              onClick={() => router.push('/dashboard')}
               className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-lg font-medium transition flex items-center justify-center gap-2"
             >
               <ArrowLeft size={20} />
-              Back to Tracking
+              Back to Dashboard
             </button>
           </div>
 
@@ -161,10 +201,10 @@ function ReceiptContent() {
             {/* Header */}
             <div className="text-center mb-8 pb-6 border-b-2 border-gray-200">
               <h1 className="text-4xl font-bold text-red-600 mb-2">Euro-Link</h1>
-              <p className="text-gray-600">Shipping Receipt</p>
+              <p className="text-gray-600">Shipping Receipt{shipments.length > 1 ? ` (${shipments.length} shipments)` : ''}</p>
               <p className="text-sm text-gray-500 mt-2">
                 <Calendar size={14} className="inline mr-1" />
-                {new Date(shipment.created_at).toLocaleDateString('en-US', {
+                {new Date(shipments[0]?.created_at).toLocaleDateString('en-US', {
                   year: 'numeric',
                   month: 'long',
                   day: 'numeric',
@@ -174,14 +214,24 @@ function ReceiptContent() {
               </p>
             </div>
 
-            {/* Tracking Number - Prominent */}
-            <div className="bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-lg p-6 mb-6 text-center">
-              <p className="text-sm font-medium mb-2">Tracking Number</p>
-              <p className="text-3xl font-bold tracking-wider">{shipment.tracking_number}</p>
-              <p className="text-sm mt-2 opacity-90">
-                Status: <span className="font-semibold">{shipment.status}</span>
-              </p>
-            </div>
+            {/* Shipments List */}
+            {shipments.map((shipment, index) => {
+              const senderInfo = shipment.sender_info || {}
+              const recipientInfo = shipment.recipient_info || {}
+              const packageInfo = shipment.package_info || {}
+              
+              return (
+                <div key={shipment.id} className={index > 0 ? 'mt-8 pt-8 border-t-2 border-gray-300 print-break' : ''}>
+                  {/* Tracking Number - Prominent */}
+                  <div className="bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-lg p-6 mb-6 text-center">
+                    <p className="text-sm font-medium mb-2">
+                      {shipments.length > 1 ? `Shipment #${index + 1} - ` : ''}Tracking Number
+                    </p>
+                    <p className="text-3xl font-bold tracking-wider">{shipment.tracking_number}</p>
+                    <p className="text-sm mt-2 opacity-90">
+                      Status: <span className="font-semibold">{shipment.status}</span>
+                    </p>
+                  </div>
 
             {/* Two Column Layout */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -282,25 +332,46 @@ function ReceiptContent() {
               )}
             </div>
 
-            {/* Payment Information */}
-            <div className="border-t-2 border-gray-200 pt-6 mb-6">
-              <div className="flex justify-between items-center mb-4">
-                <span className="text-lg font-semibold text-gray-800">Total Amount</span>
-                <span className="text-3xl font-bold text-red-600">
-                  €{shipment.cost?.toFixed(2) || '0.00'}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
-                <div>
-                  <p>Payment Status: <span className="font-medium text-gray-800">{shipment.payment_status || 'Pending'}</span></p>
-                </div>
-                {shipment.payment_method && (
-                  <div>
-                    <p>Payment Method: <span className="font-medium text-gray-800">{shipment.payment_method}</span></p>
+                  {/* Payment Information for this shipment */}
+                  <div className="border-t-2 border-gray-200 pt-6 mb-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <span className="text-lg font-semibold text-gray-800">Amount</span>
+                      <span className="text-2xl font-bold text-red-600">
+                        €{shipment.cost?.toFixed(2) || '0.00'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
+                      <div>
+                        <p>Payment Status: <span className="font-medium text-gray-800">{shipment.payment_status || 'Pending'}</span></p>
+                      </div>
+                      {shipment.payment_method && (
+                        <div>
+                          <p>Payment Method: <span className="font-medium text-gray-800">{shipment.payment_method}</span></p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
+                </div>
+              )
+            })}
+
+            {/* Total Payment Information */}
+            {shipments.length > 1 && (
+              <div className="border-t-4 border-red-500 pt-6 mt-8">
+                <div className="flex justify-between items-center mb-4">
+                  <span className="text-2xl font-bold text-gray-800">Total Amount</span>
+                  <span className="text-4xl font-bold text-red-600">
+                    €{totalCost.toFixed(2)}
+                  </span>
+                </div>
+                <div className="text-sm text-gray-600 text-center">
+                  <p>Payment Status: <span className="font-medium text-gray-800">{shipments[0]?.payment_status || 'Pending'}</span></p>
+                  {shipments[0]?.payment_method && (
+                    <p className="mt-1">Payment Method: <span className="font-medium text-gray-800">{shipments[0].payment_method}</span></p>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Footer */}
             <div className="border-t border-gray-200 pt-6 text-center text-sm text-gray-500">

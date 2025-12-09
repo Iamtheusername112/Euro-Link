@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { MapPin, Package, User, Phone, Mail, ChevronRight, CheckCircle2, AlertCircle } from '@/components/icons'
+import { MapPin, Package, User, Phone, Mail, ChevronRight, CheckCircle2, AlertCircle, Plus, Trash2, Edit2 } from '@/components/icons'
 import Header from '@/components/layout/Header'
 import BottomNav from '@/components/layout/BottomNav'
 import { toast } from '@/lib/utils/toast'
@@ -46,6 +46,8 @@ export default function CreateShipmentPage() {
 
   const [errors, setErrors] = useState({})
   const [estimatedCost, setEstimatedCost] = useState(null)
+  const [shipments, setShipments] = useState([]) // Array to store multiple shipments
+  const [editingIndex, setEditingIndex] = useState(null) // Index of shipment being edited
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -137,17 +139,11 @@ export default function CreateShipmentPage() {
     setErrors({})
   }
 
-  const handleSubmit = async () => {
+  const addShipmentToList = async () => {
     if (!validateStep(3)) return
     
-    if (!supabase) {
-      toast.error('Database not configured. Please check your .env.local file.')
-      return
-    }
-    
-    setLoading(true)
     try {
-      // Calculate final cost
+      // Calculate cost for this shipment
       const costResponse = await fetch('/api/calculate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -160,60 +156,193 @@ export default function CreateShipmentPage() {
       })
       const costData = await costResponse.json()
 
-      const trackingNumber = generateTrackingNumber()
+      const shipmentData = {
+        id: editingIndex !== null ? shipments[editingIndex].id : Date.now(),
+        senderName: formData.senderName,
+        senderPhone: formData.senderPhone,
+        senderEmail: formData.senderEmail,
+        pickupAddress: formData.pickupAddress,
+        pickupCity: formData.pickupCity,
+        pickupPostalCode: formData.pickupPostalCode,
+        recipientName: formData.recipientName,
+        recipientPhone: formData.recipientPhone,
+        recipientEmail: formData.recipientEmail,
+        deliveryAddress: formData.deliveryAddress,
+        deliveryCity: formData.deliveryCity,
+        deliveryPostalCode: formData.deliveryPostalCode,
+        packageSize: formData.packageSize,
+        packageWeight: formData.packageWeight,
+        packageDescription: formData.packageDescription,
+        packageValue: formData.packageValue,
+        deliveryType: formData.deliveryType,
+        specialInstructions: formData.specialInstructions,
+        cost: costData.cost,
+      }
 
-      // Create shipment
-      const { data, error } = await supabase
-        .from('shipments')
-        .insert({
-          tracking_number: trackingNumber,
-          user_id: user.id,
-          status: 'Pending',
-          pickup_location: `${formData.pickupAddress}, ${formData.pickupCity} ${formData.pickupPostalCode}`,
-          drop_off_location: `${formData.deliveryAddress}, ${formData.deliveryCity} ${formData.deliveryPostalCode}`,
-          package_size: formData.packageSize,
-          delivery_type: formData.deliveryType,
-          cost: costData.cost,
-          sender_info: {
-            name: formData.senderName,
-            phone: formData.senderPhone,
-            email: formData.senderEmail,
-            address: `${formData.pickupAddress}, ${formData.pickupCity} ${formData.pickupPostalCode}`,
-          },
-          recipient_info: {
-            name: formData.recipientName,
-            phone: formData.recipientPhone,
-            email: formData.recipientEmail,
-            address: `${formData.deliveryAddress}, ${formData.deliveryCity} ${formData.deliveryPostalCode}`,
-          },
-          package_info: {
-            weight: formData.packageWeight,
-            description: formData.packageDescription,
-            value: formData.packageValue,
-            size: formData.packageSize,
-          },
-          special_instructions: formData.specialInstructions,
-        })
-        .select()
-        .single()
+      if (editingIndex !== null) {
+        // Update existing shipment
+        const updatedShipments = [...shipments]
+        updatedShipments[editingIndex] = shipmentData
+        setShipments(updatedShipments)
+        setEditingIndex(null)
+        toast.success('Shipment updated!')
+      } else {
+        // Add new shipment
+        setShipments([...shipments, shipmentData])
+        toast.success('Shipment added to list!')
+      }
 
-      if (error) throw error
-
-      // Create initial status
-      await supabase
-        .from('shipment_status_history')
-        .insert({
-          shipment_id: data.id,
-          status: 'Pending',
-          location: formData.pickupAddress,
-          notes: 'Shipment created',
-        })
-
-      toast.success(`Shipment created! Tracking: ${trackingNumber}`)
-      router.push(`/checkout?id=${data.id}`)
+      // Reset form
+      resetForm()
+      setStep(4) // Go to review step
     } catch (error) {
-      console.error('Error creating shipment:', error)
-      toast.error(error.message || 'Failed to create shipment')
+      console.error('Error calculating cost:', error)
+      toast.error('Failed to calculate cost')
+    }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      senderName: formData.senderName, // Keep sender info
+      senderPhone: formData.senderPhone,
+      senderEmail: formData.senderEmail,
+      pickupAddress: formData.pickupAddress, // Keep pickup address
+      pickupCity: formData.pickupCity,
+      pickupPostalCode: formData.pickupPostalCode,
+      pickupCountry: '',
+      recipientName: '',
+      recipientPhone: '',
+      recipientEmail: '',
+      deliveryAddress: '',
+      deliveryCity: '',
+      deliveryPostalCode: '',
+      deliveryCountry: '',
+      packageSize: '5KG',
+      packageWeight: '',
+      packageDescription: '',
+      packageValue: '',
+      deliveryType: 'Normal',
+      specialInstructions: '',
+    })
+    setEstimatedCost(null)
+    setErrors({})
+  }
+
+  const editShipment = (index) => {
+    const shipment = shipments[index]
+    setFormData({
+      senderName: shipment.senderName,
+      senderPhone: shipment.senderPhone,
+      senderEmail: shipment.senderEmail,
+      pickupAddress: shipment.pickupAddress,
+      pickupCity: shipment.pickupCity,
+      pickupPostalCode: shipment.pickupPostalCode,
+      pickupCountry: '',
+      recipientName: shipment.recipientName,
+      recipientPhone: shipment.recipientPhone,
+      recipientEmail: shipment.recipientEmail,
+      deliveryAddress: shipment.deliveryAddress,
+      deliveryCity: shipment.deliveryCity,
+      deliveryPostalCode: shipment.deliveryPostalCode,
+      deliveryCountry: '',
+      packageSize: shipment.packageSize,
+      packageWeight: shipment.packageWeight,
+      packageDescription: shipment.packageDescription,
+      packageValue: shipment.packageValue,
+      deliveryType: shipment.deliveryType,
+      specialInstructions: shipment.specialInstructions,
+    })
+    setEditingIndex(index)
+    setStep(1) // Go back to step 1
+  }
+
+  const removeShipment = (index) => {
+    const updatedShipments = shipments.filter((_, i) => i !== index)
+    setShipments(updatedShipments)
+    toast.success('Shipment removed')
+    if (updatedShipments.length === 0) {
+      setStep(1) // Go back to step 1 if no shipments left
+    }
+  }
+
+  const handleSubmitAll = async () => {
+    if (shipments.length === 0) {
+      toast.error('Please add at least one shipment')
+      return
+    }
+
+    if (!supabase) {
+      toast.error('Database not configured. Please check your .env.local file.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const createdShipments = []
+      
+      // Create all shipments
+      for (const shipment of shipments) {
+        const trackingNumber = generateTrackingNumber()
+
+        const { data, error } = await supabase
+          .from('shipments')
+          .insert({
+            tracking_number: trackingNumber,
+            user_id: user.id,
+            status: 'Pending',
+            pickup_location: `${shipment.pickupAddress}, ${shipment.pickupCity} ${shipment.pickupPostalCode}`,
+            drop_off_location: `${shipment.deliveryAddress}, ${shipment.deliveryCity} ${shipment.deliveryPostalCode}`,
+            package_size: shipment.packageSize,
+            delivery_type: shipment.deliveryType,
+            cost: shipment.cost,
+            sender_info: {
+              name: shipment.senderName,
+              phone: shipment.senderPhone,
+              email: shipment.senderEmail,
+              address: `${shipment.pickupAddress}, ${shipment.pickupCity} ${shipment.pickupPostalCode}`,
+            },
+            recipient_info: {
+              name: shipment.recipientName,
+              phone: shipment.recipientPhone,
+              email: shipment.recipientEmail,
+              address: `${shipment.deliveryAddress}, ${shipment.deliveryCity} ${shipment.deliveryPostalCode}`,
+            },
+            package_info: {
+              weight: shipment.packageWeight,
+              description: shipment.packageDescription,
+              value: shipment.packageValue,
+              size: shipment.packageSize,
+            },
+            special_instructions: shipment.specialInstructions,
+          })
+          .select()
+          .single()
+
+        if (error) throw error
+
+        // Create initial status
+        await supabase
+          .from('shipment_status_history')
+          .insert({
+            shipment_id: data.id,
+            status: 'Pending',
+            location: shipment.pickupAddress,
+            notes: 'Shipment created',
+          })
+
+        createdShipments.push(data)
+      }
+
+      const totalCost = shipments.reduce((sum, s) => sum + s.cost, 0)
+      const shipmentIds = createdShipments.map(s => s.id).join(',')
+      
+      toast.success(`Successfully created ${shipments.length} shipment(s)!`)
+      
+      // Redirect to checkout with all shipment IDs
+      router.push(`/checkout?ids=${shipmentIds}`)
+    } catch (error) {
+      console.error('Error creating shipments:', error)
+      toast.error(error.message || 'Failed to create shipments')
     } finally {
       setLoading(false)
     }
@@ -238,6 +367,7 @@ export default function CreateShipmentPage() {
     { number: 1, title: 'Sender Info', icon: User },
     { number: 2, title: 'Recipient Info', icon: Package },
     { number: 3, title: 'Package Details', icon: Package },
+    { number: 4, title: 'Review', icon: CheckCircle2 },
   ]
 
   return (
@@ -729,14 +859,141 @@ export default function CreateShipmentPage() {
                 Back
               </button>
               <button
-                onClick={handleSubmit}
-                disabled={loading}
-                className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 text-white py-3 rounded-lg font-medium transition flex items-center justify-center gap-2"
+                onClick={addShipmentToList}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-medium transition flex items-center justify-center gap-2"
               >
-                {loading ? 'Creating...' : 'Create Shipment & Proceed to Payment'}
-                {!loading && <ChevronRight size={20} />}
+                {editingIndex !== null ? 'Update Shipment' : 'Add to List'}
+                <Plus size={20} />
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Step 4: Review All Shipments */}
+        {step === 4 && (
+          <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold flex items-center gap-2">
+                <Package size={24} className="text-red-500" />
+                Review Shipments ({shipments.length})
+              </h3>
+              <button
+                onClick={() => {
+                  resetForm()
+                  setStep(1)
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition"
+              >
+                <Plus size={18} />
+                Add Another
+              </button>
+            </div>
+
+            {shipments.length === 0 ? (
+              <div className="text-center py-12">
+                <Package size={48} className="text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500 mb-4">No shipments added yet</p>
+                <button
+                  onClick={() => {
+                    resetForm()
+                    setStep(1)
+                  }}
+                  className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition"
+                >
+                  Create First Shipment
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-4 max-h-96 overflow-y-auto">
+                  {shipments.map((shipment, index) => (
+                    <div key={shipment.id} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="font-semibold text-gray-800">Shipment #{index + 1}</p>
+                          <p className="text-sm text-gray-500">
+                            {shipment.recipientName} → {shipment.deliveryCity}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => editShipment(index)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                            title="Edit"
+                          >
+                            <Edit2 size={18} />
+                          </button>
+                          <button
+                            onClick={() => removeShipment(index)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+                            title="Remove"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-gray-500">From:</p>
+                          <p className="font-medium">{shipment.pickupCity}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">To:</p>
+                          <p className="font-medium">{shipment.deliveryCity}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Package:</p>
+                          <p className="font-medium">{shipment.packageSize} - {shipment.packageWeight}kg</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Delivery:</p>
+                          <p className="font-medium">{shipment.deliveryType}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Cost:</span>
+                        <span className="text-lg font-bold text-red-600">€{shipment.cost.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-semibold text-gray-700">Total Cost:</span>
+                    <span className="text-2xl font-bold text-blue-600">
+                      €{shipments.reduce((sum, s) => sum + s.cost, 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-600">
+                    {shipments.length} shipment{shipments.length > 1 ? 's' : ''} ready to create
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      resetForm()
+                      setStep(1)
+                    }}
+                    className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-lg font-medium transition flex items-center justify-center gap-2"
+                  >
+                    <Plus size={18} />
+                    Add Another Shipment
+                  </button>
+                  <button
+                    onClick={handleSubmitAll}
+                    disabled={loading}
+                    className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 text-white py-3 rounded-lg font-medium transition flex items-center justify-center gap-2"
+                  >
+                    {loading ? 'Creating...' : `Create All (${shipments.length})`}
+                    {!loading && <ChevronRight size={20} />}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </main>

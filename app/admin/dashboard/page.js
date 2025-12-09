@@ -36,6 +36,10 @@ export default function AdminDashboard() {
   const [showNotificationModal, setShowNotificationModal] = useState(false)
   const [notificationTitle, setNotificationTitle] = useState('')
   const [notificationMessage, setNotificationMessage] = useState('')
+  const [showEmailTestModal, setShowEmailTestModal] = useState(false)
+  const [emailErrorDetails, setEmailErrorDetails] = useState(null)
+  const [testEmailAddress, setTestEmailAddress] = useState('')
+  const [testEmailLoading, setTestEmailLoading] = useState(false)
   
   // Shipments Management
   const [shipments, setShipments] = useState([])
@@ -333,6 +337,61 @@ export default function AdminDashboard() {
     setFilteredShipments(filtered)
   }, [shipmentSearchTerm, shipmentStatusFilter, shipmentUserFilter, shipments])
 
+  const testEmailSending = async () => {
+    if (!testEmailAddress) {
+      toast.error('Please enter an email address')
+      return
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(testEmailAddress)) {
+      toast.error('Invalid email address format')
+      return
+    }
+
+    setTestEmailLoading(true)
+    try {
+      console.log('🧪 Testing email sending to:', testEmailAddress)
+      const response = await fetch('/api/email/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: testEmailAddress,
+          testType: 'status',
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        console.error('Test email failed:', result)
+        toast.error(result.error || 'Failed to send test email', {
+          duration: 5000,
+        })
+        // Store error details to show in modal
+        setEmailErrorDetails({
+          error: result.error || 'Failed to send test email',
+          details: result.details,
+          troubleshooting: result.troubleshooting,
+        })
+      } else {
+        console.log('✅ Test email sent successfully:', result)
+        toast.success(`Test email sent to ${testEmailAddress}! Check inbox and spam folder.`)
+        setShowEmailTestModal(false)
+        setTestEmailAddress('')
+        setEmailErrorDetails(null) // Clear any previous errors
+      }
+    } catch (error) {
+      console.error('Test email error:', error)
+      toast.error(`Failed to send test email: ${error.message}`)
+    } finally {
+      setTestEmailLoading(false)
+    }
+  }
+
   const sendNotification = async () => {
     if (!notificationTitle || !notificationMessage) {
       toast.error('Please fill in title and message')
@@ -591,13 +650,22 @@ export default function AdminDashboard() {
                 <p className="text-sm text-gray-600">Welcome back, {profile?.full_name || 'Admin'}</p>
               </div>
             </div>
-            <button
-              onClick={() => router.push('/create-shipment')}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2"
-            >
-              <Plus size={20} />
-              Create Shipment
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowEmailTestModal(true)}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2"
+                title="Test email configuration"
+              >
+                📧 Test Email
+              </button>
+              <button
+                onClick={() => router.push('/create-shipment')}
+                className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2"
+              >
+                <Plus size={20} />
+                Create Shipment
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1157,6 +1225,109 @@ export default function AdminDashboard() {
                 className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg font-medium transition"
               >
                 Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email Test Modal */}
+      {showEmailTestModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-4">🧪 Test Email Sending</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Send a test email to verify your email configuration is working correctly.
+            </p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  value={testEmailAddress}
+                  onChange={(e) => setTestEmailAddress(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="your-email@example.com"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter the email address where you want to receive the test email
+                </p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-800 font-medium mb-1">What will be tested:</p>
+                <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                  <li>Email service configuration</li>
+                  <li>Gmail SMTP connection</li>
+                  <li>Email template rendering</li>
+                  <li>Email delivery</li>
+                </ul>
+              </div>
+
+              {/* Error Details */}
+              {emailErrorDetails && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mt-4">
+                  <div className="flex items-start gap-2 mb-2">
+                    <span className="text-red-600 text-lg">⚠️</span>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-red-800 mb-1">
+                        {emailErrorDetails.error}
+                      </p>
+                      {emailErrorDetails.details && (
+                        <p className="text-xs text-red-700 mb-3 font-mono break-all">
+                          {emailErrorDetails.details}
+                        </p>
+                      )}
+                      {emailErrorDetails.troubleshooting && (
+                        <div className="mt-3">
+                          <p className="text-xs font-semibold text-red-800 mb-2">
+                            {emailErrorDetails.troubleshooting.issue || 'Troubleshooting:'}
+                          </p>
+                          {emailErrorDetails.troubleshooting.solutions && (
+                            <ol className="text-xs text-red-700 space-y-1.5 list-decimal list-inside">
+                              {emailErrorDetails.troubleshooting.solutions.map((solution, idx) => (
+                                <li key={idx}>{solution}</li>
+                              ))}
+                            </ol>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-red-200">
+                    <a
+                      href="https://myaccount.google.com/apppasswords"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-red-600 hover:text-red-800 underline"
+                    >
+                      🔗 Generate Gmail App Password →
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => {
+                  setShowEmailTestModal(false)
+                  setTestEmailAddress('')
+                  setEmailErrorDetails(null)
+                }}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 rounded-lg font-medium transition"
+              >
+                {emailErrorDetails ? 'Close' : 'Cancel'}
+              </button>
+              <button
+                onClick={testEmailSending}
+                disabled={testEmailLoading || !testEmailAddress}
+                className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white py-2 rounded-lg font-medium transition"
+              >
+                {testEmailLoading ? 'Sending...' : 'Send Test Email'}
               </button>
             </div>
           </div>

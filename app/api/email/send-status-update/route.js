@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { sendStatusUpdateEmail } from '@/lib/email'
+// Use free email service (Nodemailer) instead of Resend
+import { sendStatusUpdateEmail } from '@/lib/email-free'
 import { supabase } from '@/lib/supabase'
 
 export async function POST(request) {
@@ -28,15 +29,20 @@ export async function POST(request) {
       )
     }
 
-    // Get user email - try to fetch from auth.users via RPC or use service role
-    // For now, we'll use a workaround: fetch from profiles if email is stored there
-    // Or use the user_id to query auth.users (requires service role key)
-    
-    // Check if we have service role key for admin access
+    // Get user email using service role key (required for accessing auth.users)
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    
+    if (!serviceRoleKey) {
+      console.error('SUPABASE_SERVICE_ROLE_KEY not configured. Cannot fetch user email.')
+      return NextResponse.json(
+        { error: 'Server configuration error. SUPABASE_SERVICE_ROLE_KEY is required for email sending.' },
+        { status: 500 }
+      )
+    }
+
     let userEmail = null
 
-    if (serviceRoleKey) {
+    try {
       // Use service role to access auth.users
       const { createClient } = await import('@supabase/supabase-js')
       const adminSupabase = createClient(
@@ -50,26 +56,41 @@ export async function POST(request) {
         }
       )
       
-      const { data: authUser } = await adminSupabase.auth.admin.getUserById(shipment.user_id)
-      userEmail = authUser?.user?.email
+      console.log('Fetching user email for:', shipment.user_id)
+      const { data: authUser, error: authError } = await adminSupabase.auth.admin.getUserById(shipment.user_id)
+      
+      if (authError) {
+        console.error('Error fetching user from auth:', authError)
+      } else {
+        userEmail = authUser?.user?.email
+        console.log('User email found:', userEmail ? 'Yes' : 'No', userEmail)
+      }
+    } catch (error) {
+      console.error('Error accessing auth.users:', error)
     }
 
     // Fallback: try to get email from profiles if stored there
     if (!userEmail) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('id', shipment.user_id)
-        .single()
-      
-      userEmail = profile?.email
+      try {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('id', shipment.user_id)
+          .single()
+        
+        if (!profileError && profile?.email) {
+          userEmail = profile.email
+          console.log('User email found in profiles:', userEmail)
+        }
+      } catch (error) {
+        console.error('Error fetching email from profiles:', error)
+      }
     }
 
     if (!userEmail) {
-      // Last resort: try to get from auth.users using RPC (if available)
-      // Or return error
+      console.error('User email not found for user:', shipment.user_id)
       return NextResponse.json(
-        { error: 'User email not found. Please ensure user has an email address.' },
+        { error: 'User email not found. Please ensure the user has a valid email address in their account.' },
         { status: 404 }
       )
     }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { sendDriverAssignmentEmail } from '@/lib/email'
+// Use free email service (Nodemailer) instead of Resend
+import { sendDriverAssignmentEmail } from '@/lib/email-free'
 import { supabase } from '@/lib/supabase'
 
 export async function POST(request) {

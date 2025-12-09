@@ -14,6 +14,8 @@ export default function UserDashboard() {
   const router = useRouter()
   const { user, profile, loading: authLoading, signOut } = useAuth()
   const [currentOrder, setCurrentOrder] = useState(null)
+  const [recentDeliveries, setRecentDeliveries] = useState([])
+  const [availableCities, setAvailableCities] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -44,26 +46,25 @@ export default function UserDashboard() {
         },
         (payload) => {
           console.log('Shipment update received:', payload.new)
-          // Update current order if it matches
-          setCurrentOrder(prevOrder => {
-            if (prevOrder && payload.new.id === prevOrder.id) {
-              toast.success(`Status updated: ${payload.new.status}`)
-              return payload.new
-            }
-            return prevOrder
-          })
+          console.log('Previous status:', payload.old?.status, 'New status:', payload.new.status)
           
-          // If status changed and shipment is no longer active, refresh
-          const activeStatuses = ['Pending', 'Paid', 'In Transit', 'On Route', 'Out for Delivery']
-          if (!activeStatuses.includes(payload.new.status)) {
-            fetchDashboardData()
-          }
+          // Always refresh dashboard data to get latest current order (without loading spinner)
+          fetchDashboardData(false)
+          
+          // Show toast notification
+          toast.success(`Status updated: ${payload.new.status}`)
         }
       )
       .subscribe((status) => {
         console.log('Subscription status:', status)
         if (status === 'SUBSCRIBED') {
           console.log('Successfully subscribed to shipment updates')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Channel subscription error')
+        } else if (status === 'TIMED_OUT') {
+          console.error('Channel subscription timed out')
+        } else if (status === 'CLOSED') {
+          console.warn('Channel closed')
         }
       })
 
@@ -73,13 +74,15 @@ export default function UserDashboard() {
     }
   }, [user, supabase, authLoading])
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (showLoading = true) => {
     if (!supabase || !user) return
 
-    setLoading(true)
+    if (showLoading) {
+      setLoading(true)
+    }
     try {
       // Fetch current/active shipment
-      const { data: shipments, error } = await supabase
+      const { data: activeShipment, error: activeError } = await supabase
         .from('shipments')
         .select('*')
         .eq('user_id', user.id)
@@ -88,12 +91,55 @@ export default function UserDashboard() {
         .limit(1)
         .maybeSingle()
 
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching current order:', error)
-      } else if (shipments) {
-        setCurrentOrder(shipments)
+      if (activeError && activeError.code !== 'PGRST116') {
+        console.error('Error fetching current order:', activeError)
+      } else if (activeShipment) {
+        console.log('Setting current order:', activeShipment.status)
+        setCurrentOrder(activeShipment)
       } else {
         setCurrentOrder(null)
+      }
+
+      // Fetch recent deliveries (last 3 delivered shipments)
+      const { data: deliveries, error: deliveriesError } = await supabase
+        .from('shipments')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'Delivered')
+        .order('updated_at', { ascending: false })
+        .limit(3)
+
+      if (!deliveriesError && deliveries) {
+        setRecentDeliveries(deliveries)
+      }
+
+      // Fetch available cities from all user shipments
+      const { data: allShipments, error: citiesError } = await supabase
+        .from('shipments')
+        .select('pickup_location, drop_off_location')
+        .eq('user_id', user.id)
+
+      if (!citiesError && allShipments) {
+        // Extract unique cities from pickup and drop-off locations
+        const citiesSet = new Set()
+        allShipments.forEach(shipment => {
+          if (shipment.pickup_location) {
+            const city = shipment.pickup_location.split(',')[0]?.trim()
+            if (city) citiesSet.add(city)
+          }
+          if (shipment.drop_off_location) {
+            const city = shipment.drop_off_location.split(',')[0]?.trim()
+            if (city) citiesSet.add(city)
+          }
+        })
+        
+        // Convert to array and get first 3 with abbreviations
+        const citiesArray = Array.from(citiesSet).slice(0, 3).map(city => {
+          // Get first 2 letters as abbreviation
+          const abbrev = city.substring(0, 2).toUpperCase()
+          return { name: city, abbrev }
+        })
+        setAvailableCities(citiesArray)
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
@@ -216,16 +262,22 @@ export default function UserDashboard() {
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
                 <p className="text-gray-500 text-xs mb-1">From</p>
-                <p className="text-white font-medium">{currentOrder.pickup_location?.split(',')[0] || 'Alabama'}</p>
+                <p className="text-white font-medium">
+                  {currentOrder.pickup_location?.split(',')[0] || currentOrder.pickup_location || 'N/A'}
+                </p>
                 <p className="text-gray-400 text-xs mt-1">
                   {new Date(currentOrder.created_at).toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric' })}
                 </p>
               </div>
               <div>
                 <p className="text-gray-500 text-xs mb-1">To</p>
-                <p className="text-white font-medium">{currentOrder.drop_off_location?.split(',')[0] || 'USA'}</p>
+                <p className="text-white font-medium">
+                  {currentOrder.drop_off_location?.split(',')[0] || currentOrder.drop_off_location || 'N/A'}
+                </p>
                 <p className="text-gray-400 text-xs mt-1">
-                  {new Date(new Date(currentOrder.created_at).getTime() + 13 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric' })}
+                  {currentOrder.updated_at && currentOrder.status === 'Delivered' 
+                    ? new Date(currentOrder.updated_at).toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric' })
+                    : 'In transit'}
                 </p>
               </div>
             </div>
@@ -233,27 +285,51 @@ export default function UserDashboard() {
             {/* Supplier/Dealer Section */}
             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-700">
               <div>
-                <p className="text-gray-500 text-xs mb-2">Supplier</p>
-                <p className="text-white font-medium mb-2">{currentOrder.sender_info?.name || 'Sean Parker'}</p>
+                <p className="text-gray-500 text-xs mb-2">Sender</p>
+                <p className="text-white font-medium mb-2">
+                  {currentOrder.sender_info?.name || profile?.full_name || 'N/A'}
+                </p>
                 <div className="flex gap-2">
-                  <button className="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition">
-                    <Phone size={14} className="text-white" />
-                  </button>
-                  <button className="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition">
-                    <MessageSquare size={14} className="text-white" />
-                  </button>
+                  {currentOrder.sender_info?.phone && (
+                    <a 
+                      href={`tel:${currentOrder.sender_info.phone}`}
+                      className="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition"
+                    >
+                      <Phone size={14} className="text-white" />
+                    </a>
+                  )}
+                  {currentOrder.sender_info?.email && (
+                    <a 
+                      href={`mailto:${currentOrder.sender_info.email}`}
+                      className="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition"
+                    >
+                      <MessageSquare size={14} className="text-white" />
+                    </a>
+                  )}
                 </div>
               </div>
               <div>
-                <p className="text-gray-500 text-xs mb-2">Dealer</p>
-                <p className="text-white font-medium mb-2">{currentOrder.recipient_info?.name || 'Jason Rolai'}</p>
+                <p className="text-gray-500 text-xs mb-2">Recipient</p>
+                <p className="text-white font-medium mb-2">
+                  {currentOrder.recipient_info?.name || 'N/A'}
+                </p>
                 <div className="flex gap-2">
-                  <button className="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition">
-                    <Phone size={14} className="text-white" />
-                  </button>
-                  <button className="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition">
-                    <MessageSquare size={14} className="text-white" />
-                  </button>
+                  {currentOrder.recipient_info?.phone && (
+                    <a 
+                      href={`tel:${currentOrder.recipient_info.phone}`}
+                      className="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition"
+                    >
+                      <Phone size={14} className="text-white" />
+                    </a>
+                  )}
+                  {currentOrder.recipient_info?.email && (
+                    <a 
+                      href={`mailto:${currentOrder.recipient_info.email}`}
+                      className="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition"
+                    >
+                      <MessageSquare size={14} className="text-white" />
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
@@ -271,30 +347,45 @@ export default function UserDashboard() {
           </div>
         )}
 
-        {/* Available Cargos Section */}
+        {/* Package Stats Section */}
         <div className="bg-gray-800 rounded-xl p-4 mb-4 relative overflow-hidden">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-white font-bold">Available Cargos</h3>
+            <h3 className="text-white font-bold">Package Stats</h3>
             <ChevronRight size={20} className="text-gray-400" />
           </div>
           <div className="mb-3">
-            <p className="text-white font-medium mb-1">New Truck</p>
-            <p className="text-gray-400 text-sm mb-2">Optimums Prime</p>
-            <div className="flex items-center gap-4 text-sm">
-              <div>
-                <p className="text-gray-500 text-xs">Per day</p>
-                <p className="text-orange-500 font-semibold">$40.00</p>
-              </div>
-              <div>
-                <p className="text-gray-500 text-xs">Weight</p>
-                <p className="text-white font-semibold">10 Ton</p>
-              </div>
-            </div>
+            {currentOrder ? (
+              <>
+                <p className="text-white font-medium mb-1">Current Package</p>
+                <p className="text-gray-400 text-sm mb-2">{currentOrder.package_size || 'Standard'}</p>
+                <div className="flex items-center gap-4 text-sm">
+                  <div>
+                    <p className="text-gray-500 text-xs">Cost</p>
+                    <p className="text-orange-500 font-semibold">€{parseFloat(currentOrder.cost || 0).toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">Type</p>
+                    <p className="text-white font-semibold">{currentOrder.delivery_type || 'Normal'}</p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-white font-medium mb-1">No Active Package</p>
+                <p className="text-gray-400 text-sm mb-2">Create your first shipment</p>
+                <div className="flex items-center gap-4 text-sm">
+                  <div>
+                    <p className="text-gray-500 text-xs">Total Shipments</p>
+                    <p className="text-orange-500 font-semibold">0</p>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
           <div className="h-32 bg-gray-700 rounded-lg flex items-center justify-center overflow-hidden">
             <div className="text-center">
               <Package size={48} className="text-orange-500 mx-auto mb-2" />
-              <p className="text-gray-400 text-xs">Truck Image</p>
+              <p className="text-gray-400 text-xs">{currentOrder ? 'Active Package' : 'No Package'}</p>
             </div>
           </div>
         </div>
@@ -304,35 +395,51 @@ export default function UserDashboard() {
           {/* Available City */}
           <div className="bg-gray-800 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-white font-bold text-sm">Available City</h3>
+              <h3 className="text-white font-bold text-sm">Cities</h3>
               <ChevronRight size={16} className="text-gray-400" />
             </div>
-            <div className="flex gap-2">
-              <div className="w-8 h-8 rounded-full bg-red-600 flex items-center justify-center text-white text-xs font-bold">
-                TN
-              </div>
-              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
-                UK
-              </div>
-              <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold">
-                IS
-              </div>
-              <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
-                <span className="text-white text-lg">+</span>
-              </div>
+            <div className="flex gap-2 flex-wrap">
+              {availableCities.length > 0 ? (
+                availableCities.map((city, index) => {
+                  const colors = ['bg-red-600', 'bg-blue-600', 'bg-blue-500']
+                  return (
+                    <div 
+                      key={index}
+                      className={`w-8 h-8 rounded-full ${colors[index % colors.length]} flex items-center justify-center text-white text-xs font-bold`}
+                      title={city.name}
+                    >
+                      {city.abbrev}
+                    </div>
+                  )
+                })
+              ) : (
+                <p className="text-gray-400 text-xs">No cities yet</p>
+              )}
             </div>
           </div>
 
           {/* Recent Delivery */}
-          <div className="bg-orange-500 rounded-xl p-4 relative overflow-hidden">
+          <div 
+            className="bg-orange-500 rounded-xl p-4 relative overflow-hidden cursor-pointer hover:bg-orange-600 transition"
+            onClick={() => recentDeliveries.length > 0 && router.push('/history')}
+          >
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-white font-bold text-sm">Recent Delivery</h3>
               <ChevronRight size={16} className="text-white" />
             </div>
             <div className="flex items-center justify-center h-20">
-              <div className="bg-white/20 rounded-lg p-3">
-                <Package size={32} className="text-white" />
-              </div>
+              {recentDeliveries.length > 0 ? (
+                <div className="text-center">
+                  <div className="bg-white/20 rounded-lg p-3 inline-block mb-1">
+                    <Package size={32} className="text-white" />
+                  </div>
+                  <p className="text-white text-xs font-medium">{recentDeliveries.length} delivered</p>
+                </div>
+              ) : (
+                <div className="bg-white/20 rounded-lg p-3">
+                  <Package size={32} className="text-white" />
+                </div>
+              )}
             </div>
           </div>
         </div>

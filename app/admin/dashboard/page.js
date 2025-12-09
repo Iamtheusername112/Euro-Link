@@ -7,6 +7,7 @@ import Sidebar from '@/components/layout/Sidebar'
 import { toast } from '@/lib/utils/toast'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { getStatusConfig, getStatusesInOrder } from '@/lib/statusConfig'
 
 export default function AdminDashboard() {
   const router = useRouter()
@@ -50,38 +51,130 @@ export default function AdminDashboard() {
   const [selectedDriverId, setSelectedDriverId] = useState('')
 
   useEffect(() => {
-    if (!authLoading) {
-      if (!user) {
-        router.push('/admin/login')
-        return
-      }
-      checkAdminAccess()
+    // Give AuthContext time to initialize
+    if (authLoading) {
+      return // Still loading, wait
     }
+    
+    if (!user) {
+      console.log('No user found, redirecting to login')
+      router.replace('/admin/login')
+      return
+    }
+    
+    console.log('User found, checking admin access...', { userId: user.id, email: user.email })
+    checkAdminAccess()
   }, [user, authLoading, router])
 
   const checkAdminAccess = async () => {
-    if (!supabase || !user) return
+    if (!supabase || !user) {
+      console.log('checkAdminAccess: Missing supabase or user', { hasSupabase: !!supabase, hasUser: !!user })
+      return
+    }
 
     try {
+      console.log('Checking admin access for user:', user.id, user.email)
+      
+      // First check if profile exists and get role
       const { data: userProfile, error } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, full_name')
         .eq('id', user.id)
         .single()
 
-      if (error || !userProfile || (userProfile.role !== 'Admin' && userProfile.role !== 'Driver')) {
-        toast.error('Access denied. Admin or Driver only.')
-        router.push('/')
+      console.log('Profile check result:', { userProfile, error, errorCode: error?.code })
+
+      if (error) {
+        console.error('Error fetching profile:', error)
+        
+        // If profile doesn't exist, try to create it
+        if (error.code === 'PGRST116') {
+          console.log('Profile not found, creating admin profile...')
+          const { data: newProfileData, error: createError } = await supabase
+            .from('profiles')
+            .insert({
+              id: user.id,
+              full_name: user.email?.split('@')[0] || 'System Administrator',
+              role: 'Admin',
+            })
+            .select()
+            .single()
+          
+          console.log('Profile creation result:', { newProfileData, createError })
+          
+          if (createError) {
+            if (createError.code === '23505') {
+              // Profile already exists, fetch it
+              console.log('Profile already exists, fetching...')
+              const { data: existingProfile } = await supabase
+                .from('profiles')
+                .select('role')
+                .eq('id', user.id)
+                .single()
+              
+              if (existingProfile && (existingProfile.role === 'Admin' || existingProfile.role === 'Driver')) {
+                console.log('Access granted with existing profile')
+                setLoading(false)
+                fetchDashboardData()
+                fetchUsers()
+                fetchShipments()
+                fetchDrivers()
+                return
+              }
+            } else {
+              console.error('Error creating profile:', createError)
+              toast.error(`Failed to create admin profile: ${createError.message}`)
+              router.replace('/admin/login')
+              return
+            }
+          } else if (newProfileData && (newProfileData.role === 'Admin' || newProfileData.role === 'Driver')) {
+            console.log('Access granted with newly created profile')
+            setLoading(false)
+            fetchDashboardData().catch(err => console.error('Error fetching dashboard data:', err))
+            fetchUsers().catch(err => console.error('Error fetching users:', err))
+            fetchShipments().catch(err => console.error('Error fetching shipments:', err))
+            fetchDrivers().catch(err => console.error('Error fetching drivers:', err))
+            return
+          }
+        }
+        
+        console.error('Profile check failed, redirecting to login')
+        toast.error('Access denied. Please contact administrator.')
+        router.replace('/admin/login')
         return
       }
 
-      fetchDashboardData()
-      fetchUsers()
-      fetchShipments()
-      fetchDrivers()
+      if (!userProfile) {
+        console.error('No profile returned')
+        toast.error('Profile not found. Please contact administrator.')
+        router.replace('/admin/login')
+        return
+      }
+
+      if (userProfile.role !== 'Admin' && userProfile.role !== 'Driver') {
+        console.error('Access denied - role:', userProfile.role)
+        toast.error(`Access denied. Your role is: ${userProfile.role}. Admin or Driver required.`)
+        router.replace('/admin/login')
+        return
+      }
+
+      console.log('✅ Access granted, loading dashboard data...', { role: userProfile.role })
+      // Set loading to false FIRST so dashboard can render
+      setLoading(false)
+      // Then fetch data (don't await - let it load in background)
+      fetchDashboardData().catch(err => console.error('Error fetching dashboard data:', err))
+      fetchUsers().catch(err => console.error('Error fetching users:', err))
+      fetchShipments().catch(err => console.error('Error fetching shipments:', err))
+      fetchDrivers().catch(err => console.error('Error fetching drivers:', err))
+      console.log('✅ Dashboard initialized, data fetching started')
     } catch (error) {
       console.error('Error checking access:', error)
-      router.push('/admin/login')
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+      })
+      toast.error(`Failed to verify access: ${error.message}`)
+      router.replace('/admin/login')
     }
   }
 
@@ -270,37 +363,44 @@ export default function AdminDashboard() {
   }
 
   const updateShipmentStatus = async () => {
-    if (!newStatus || !selectedShipment) return
+    if (!newStatus || !selectedShipment) {
+      console.error('Missing status or shipment:', { newStatus, selectedShipment })
+      toast.error('Please select a status')
+      return
+    }
+
+    console.log('Updating shipment status:', {
+      shipmentId: selectedShipment.id,
+      trackingNumber: selectedShipment.tracking_number,
+      oldStatus: selectedShipment.status,
+      newStatus: newStatus,
+    })
 
     try {
-      const { error } = await supabase
-        .from('shipments')
-        .update({ 
-          status: newStatus,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', selectedShipment.id)
+      // Use API route to update status (handles RLS properly with service role)
+      const response = await fetch('/api/shipments/update-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          shipmentId: selectedShipment.id,
+          newStatus: newStatus,
+          location: 'Status updated by admin',
+          notes: `Status updated from ${selectedShipment.status} to ${newStatus}`,
+          adminId: user?.id,
+        }),
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Status update failed:', errorData)
+        toast.error(errorData.error || 'Failed to update status')
+        return
+      }
 
-      await supabase
-        .from('shipment_status_history')
-        .insert({
-          shipment_id: selectedShipment.id,
-          status: newStatus,
-          location: 'Status updated',
-          notes: `Status updated to ${newStatus}`,
-        })
-
-      await supabase
-        .from('notifications')
-        .insert({
-          user_id: selectedShipment.user_id,
-          shipment_id: selectedShipment.id,
-          type: 'status_update',
-          title: 'Shipment Status Update',
-          message: `Your shipment ${selectedShipment.tracking_number} status has been updated to ${newStatus}.`,
-        })
+      const result = await response.json()
+      console.log('✅ Status update completed successfully:', result)
 
       // Send email notification
       try {
@@ -319,21 +419,31 @@ export default function AdminDashboard() {
           const errorData = await emailResponse.json()
           console.warn('Email sending failed:', errorData)
           // Don't fail the whole operation if email fails
+        } else {
+          console.log('✅ Email sent successfully')
         }
       } catch (emailError) {
         console.error('Email sending error:', emailError)
         // Don't fail the whole operation if email fails
       }
 
-      toast.success('Status updated successfully. Email sent to customer.')
+      toast.success(`Status updated to ${newStatus}. User notified via app and email.`)
       setShowStatusModal(false)
       setSelectedShipment(null)
       setNewStatus('')
-      fetchShipments()
-      fetchDashboardData()
+      
+      // Refresh data
+      await fetchShipments()
+      await fetchDashboardData()
     } catch (error) {
       console.error('Error updating status:', error)
-      toast.error('Failed to update status')
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      })
+      toast.error(`Failed to update status: ${error.message || 'Unknown error'}`)
     }
   }
 
@@ -424,12 +534,38 @@ export default function AdminDashboard() {
     }
   }
 
-  if (authLoading || loading) {
+  // Show loading only if auth is still loading OR if we're actively checking access
+  // Don't show loading if user exists but we're just fetching data
+  if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading dashboard...</p>
+          <p className="text-gray-500">Authenticating...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // If no user after auth loading is done, show redirecting message
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+          <p className="text-gray-500">Redirecting to login...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // If still checking access, show loading
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+          <p className="text-gray-500">Verifying access...</p>
         </div>
       </div>
     )
@@ -875,12 +1011,16 @@ export default function AdminDashboard() {
                   onChange={(e) => setNewStatus(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
-                  <option value="Pending">Pending</option>
-                  <option value="Paid">Paid</option>
-                  <option value="In Transit">In Transit</option>
-                  <option value="On Route">On Route</option>
-                  <option value="Out for Delivery">Out for Delivery</option>
-                  <option value="Delivered">Delivered</option>
+                  <option value="">Select a status</option>
+                  <option value="Pending">⏳ Pending - Order Processing</option>
+                  <option value="Paid">✅ Paid - Payment Confirmed</option>
+                  <option value="Processing">📦 Processing - Preparing for Pickup</option>
+                  <option value="Picked Up">📥 Picked Up - Collected from Sender</option>
+                  <option value="In Transit">🚚 In Transit - On the Way</option>
+                  <option value="On Route">🚛 On Route - Approaching Destination</option>
+                  <option value="Out for Delivery">📦 Out for Delivery - Arriving Soon</option>
+                  <option value="Delivered">🎉 Delivered - Successfully Delivered</option>
+                  <option value="Cancelled">❌ Cancelled</option>
                 </select>
               </div>
             </div>

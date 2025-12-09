@@ -15,6 +15,55 @@ function TrackContent() {
   const [statusHistory, setStatusHistory] = useState([])
   const [loading, setLoading] = useState(true)
 
+  // Define fetchStatusHistory first using useCallback
+  const fetchStatusHistory = useCallback(async (shipmentId) => {
+    if (!supabase || !shipmentId) return
+
+    try {
+      const { data, error } = await supabase
+        .from('shipment_status_history')
+        .select('*')
+        .eq('shipment_id', shipmentId)
+        .order('timestamp', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching status history:', error)
+      } else {
+        setStatusHistory(data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching status history:', error)
+    }
+  }, [])
+
+  const fetchShipmentData = async () => {
+    if (!supabase || !trackingNumber) {
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('shipments')
+        .select('*')
+        .eq('tracking_number', trackingNumber)
+        .single()
+
+      if (error) {
+        console.error('Error fetching shipment:', error)
+        toast.error('Shipment not found')
+      } else {
+        setShipment(data)
+      }
+    } catch (error) {
+      console.error('Error fetching shipment:', error)
+      toast.error('Failed to load shipment')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (trackingNumber) {
       fetchShipmentData()
@@ -72,54 +121,6 @@ function TrackContent() {
       supabase.removeChannel(channel)
     }
   }, [shipment?.id, fetchStatusHistory])
-
-  const fetchShipmentData = async () => {
-    if (!supabase || !trackingNumber) {
-      setLoading(false)
-      return
-    }
-
-    setLoading(true)
-    try {
-      const { data, error } = await supabase
-        .from('shipments')
-        .select('*')
-        .eq('tracking_number', trackingNumber)
-        .single()
-
-      if (error) {
-        console.error('Error fetching shipment:', error)
-        toast.error('Shipment not found')
-      } else {
-        setShipment(data)
-      }
-    } catch (error) {
-      console.error('Error fetching shipment:', error)
-      toast.error('Failed to load shipment')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchStatusHistory = useCallback(async (shipmentId) => {
-    if (!supabase || !shipmentId) return
-
-    try {
-      const { data, error } = await supabase
-        .from('shipment_status_history')
-        .select('*')
-        .eq('shipment_id', shipmentId)
-        .order('timestamp', { ascending: true })
-
-      if (error) {
-        console.error('Error fetching status history:', error)
-      } else {
-        setStatusHistory(data || [])
-      }
-    } catch (error) {
-      console.error('Error fetching status history:', error)
-    }
-  }, [])
 
   // Fetch status history when shipment is loaded
   useEffect(() => {
@@ -206,9 +207,17 @@ function TrackContent() {
             </div>
             <p className="text-xs text-gray-600">Map View</p>
           </div>
-          {/* Mock street names */}
-          <div className="absolute top-2 left-2 text-xs text-gray-500">Front Street</div>
-          <div className="absolute bottom-2 right-2 text-xs text-gray-500">Canterbury Drive</div>
+          {/* Real location data */}
+          {shipment.pickup_location && (
+            <div className="absolute top-2 left-2 text-xs text-gray-500 bg-white/70 px-2 py-1 rounded">
+              {shipment.pickup_location.split(',')[0]}
+            </div>
+          )}
+          {shipment.drop_off_location && (
+            <div className="absolute bottom-2 right-2 text-xs text-gray-500 bg-white/70 px-2 py-1 rounded">
+              {shipment.drop_off_location.split(',')[0]}
+            </div>
+          )}
         </div>
 
         <div className="mb-4">

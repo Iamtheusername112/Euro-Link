@@ -117,6 +117,18 @@ CREATE POLICY "Users can view status history of their shipments"
     )
   );
 
+-- Allow admins and drivers to insert status history
+DROP POLICY IF EXISTS "Admins and drivers can insert status history" ON shipment_status_history;
+CREATE POLICY "Admins and drivers can insert status history"
+  ON shipment_status_history FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid()
+      AND (profiles.role = 'Admin' OR profiles.role = 'Driver')
+    )
+  );
+
 -- Step 4: Create payments table
 CREATE TABLE IF NOT EXISTS payments (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -246,6 +258,44 @@ DROP TRIGGER IF EXISTS on_status_update_notify ON shipment_status_history;
 CREATE TRIGGER on_status_update_notify
   AFTER INSERT ON shipment_status_history
   FOR EACH ROW EXECUTE FUNCTION public.notify_status_update();
+
+-- ============================================
+-- CREATE PRICING TABLE FOR DYNAMIC PRICING
+-- ============================================
+CREATE TABLE IF NOT EXISTS pricing (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  package_size TEXT NOT NULL,
+  base_price DECIMAL(10, 2) NOT NULL,
+  express_multiplier DECIMAL(3, 2) DEFAULT 1.5,
+  normal_multiplier DECIMAL(3, 2) DEFAULT 1.0,
+  estimated_days_express INTEGER DEFAULT 1,
+  estimated_days_normal INTEGER DEFAULT 3,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Enable Row Level Security
+ALTER TABLE pricing ENABLE ROW LEVEL SECURITY;
+
+-- Create policy - everyone can read pricing
+DROP POLICY IF EXISTS "Anyone can view pricing" ON pricing;
+CREATE POLICY "Anyone can view pricing"
+  ON pricing FOR SELECT
+  USING (is_active = true);
+
+-- Insert default pricing data
+INSERT INTO pricing (package_size, base_price, express_multiplier, normal_multiplier, estimated_days_express, estimated_days_normal) VALUES
+  ('1KG', 10.00, 1.5, 1.0, 1, 3),
+  ('5KG', 25.00, 1.5, 1.0, 1, 3),
+  ('10KG', 45.00, 1.5, 1.0, 1, 3),
+  ('20KG', 80.00, 1.5, 1.0, 2, 5),
+  ('50KG', 150.00, 1.5, 1.0, 2, 7)
+ON CONFLICT DO NOTHING;
+
+-- Create index for faster lookups
+CREATE INDEX IF NOT EXISTS idx_pricing_package_size ON pricing(package_size);
+CREATE INDEX IF NOT EXISTS idx_pricing_is_active ON pricing(is_active);
 
 -- ============================================
 -- ENABLE REALTIME FOR STATUS UPDATES
